@@ -27,6 +27,12 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
+  apps/companion:
+    dependencies:
+      playwright:
+        specifier: ^1.62.0
+        version: 1.62.0
+
   apps/web:
     dependencies:
       '@clerk/nextjs':
