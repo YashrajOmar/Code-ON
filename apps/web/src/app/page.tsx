@@ -13,6 +13,7 @@ const EditorPanel = dynamic(() => import("@/components/EditorPanel"), { ssr: fal
 const HintPanel = dynamic(() => import("@/components/HintPanel"), { ssr: false });
 const CompanionNotifier = dynamic(() => import("@/components/CompanionNotifier"), { ssr: false });
 const OnboardingOverlay = dynamic(() => import("@/components/OnboardingOverlay"), { ssr: false });
+const InlineTooltips = dynamic(() => import("@/components/InlineTooltips"), { ssr: false });
 
 const FlexLayoutComponent = dynamic(
   () => import("@/components/FlexLayoutWrapper"),
@@ -77,6 +78,7 @@ export default function IDEPage() {
         onComplete={() => {}}
         onGoToSettings={() => setActiveView("settings")}
       />
+      <InlineTooltips />
     </div>
   );
 }

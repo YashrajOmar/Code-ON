@@ -21,37 +21,37 @@ interface TooltipSpot {
 const TOOLTIPS: TooltipSpot[] = [
   {
     id: "import-url",
-    selector: 'input[placeholder*="Paste LeetCode"]',
+    selector: 'input[placeholder*="Paste LeetCode"], input[placeholder*="LeetCode"]',
     title: "Import a Problem",
     body: "Paste a Codeforces or LeetCode URL here, then click Import. CodeOn will scrape the problem statement, editorial, and reference solutions.",
     position: "bottom",
   },
   {
     id: "editor",
-    selector: '.monaco-editor',
+    selector: '.monaco-editor, [class*="monaco"]',
     title: "Write Your Code",
     body: "Write your solution here. Click Run to test against sample cases. CodeOn compiles and runs it instantly.",
     position: "left",
   },
   {
     id: "ai-hints",
-    selector: 'button:has-text("Give me a hint")',
+    selector: 'textarea[placeholder*="Ask a question"], textarea[placeholder*="share your thinking"]',
     title: "Ask AI for Help",
-    body: "Click 'Give me a hint' for a Socratic nudge, or type a question below. The AI knows your coding style and the editorial.",
+    body: "Type a question here, or click 'Give me a hint' above for a Socratic nudge. The AI knows your coding style and the editorial.",
     position: "left",
   },
   {
     id: "trail-tab",
-    selector: 'button:has-text("Trail")',
+    selector: 'button',
     title: "Optimization Trail",
-    body: "Click the Trail tab to see a step-by-step path from brute force to the optimal solution, based on the editorial.",
+    body: "Click the Trail tab (top left) to see a step-by-step path from brute force to the optimal solution, based on the editorial.",
     position: "right",
   },
   {
     id: "settings-gear",
-    selector: 'button:has-text("Settings"), [data-view="settings"]',
+    selector: 'aside button[title="Settings"]',
     title: "Configure Everything",
-    body: "Click Settings to add your AI API key, connect coding profiles, and paste solutions to train your AI mentor.",
+    body: "Click the gear icon (bottom left) to add your AI API key, connect coding profiles, and paste solutions to train your AI mentor.",
     position: "right",
   },
 ];
@@ -69,20 +69,18 @@ export default function InlineTooltips() {
       return;
     }
 
-    // Wait for the IDE to load
+    // Wait for the IDE to fully load
     setTimeout(() => {
       setVisible(true);
       updatePosition();
-    }, 3000);
+    }, 5000);
   }, []);
 
-  // Update position when step changes
   useEffect(() => {
     if (!visible) return;
     updatePosition();
   }, [currentStep, visible]);
 
-  // Reposition on resize/scroll
   useEffect(() => {
     if (!visible) return;
     const handler = () => updatePosition();
@@ -102,14 +100,17 @@ export default function InlineTooltips() {
       const el = document.querySelector(tooltip.selector);
       if (el) {
         const rect = el.getBoundingClientRect();
-        setElement(rect);
-      } else {
-        // Element not found — skip to next
-        if (currentStep < TOOLTIPS.length - 1) {
-          setCurrentStep(currentStep + 1);
-        } else {
-          finish();
+        // Verify the element is actually visible (not display:none)
+        if (rect.width > 0 && rect.height > 0) {
+          setElement(rect);
+          return;
         }
+      }
+      // Element not found or hidden — skip to next
+      if (currentStep < TOOLTIPS.length - 1) {
+        setCurrentStep(currentStep + 1);
+      } else {
+        finish();
       }
     } catch {
       setElement(null);
@@ -138,17 +139,16 @@ export default function InlineTooltips() {
   const tooltip = TOOLTIPS[currentStep];
   const isLast = currentStep === TOOLTIPS.length - 1;
 
-  // Calculate tooltip position
   let style: React.CSSProperties = { position: "fixed", zIndex: 2147483646 };
 
   if (tooltip.position === "bottom") {
     style = { ...style, top: element.bottom + 12, left: element.left + element.width / 2 - 140 };
   } else if (tooltip.position === "left") {
-    style = { ...style, top: element.top + element.height / 2 - 50, left: element.left - 300 };
+    style = { ...style, top: element.top + element.height / 2 - 50, left: Math.max(10, element.left - 300) };
   } else if (tooltip.position === "right") {
     style = { ...style, top: element.top + element.height / 2 - 50, left: element.right + 12 };
   } else {
-    style = { ...style, top: element.top - 120, left: element.left + element.width / 2 - 140 };
+    style = { ...style, top: Math.max(10, element.top - 120), left: element.left + element.width / 2 - 140 };
   }
 
   // Highlight box around the target element
