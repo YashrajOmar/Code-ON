@@ -62,7 +62,7 @@ export async function POST(req: Request) {
       SELECT topic FROM "UserTopicProfile"
       WHERE "userId" = ${userId} AND "codeSnippet" IS NOT NULL
     `;
-    const existingTopics = new Set(existing.map((r) => r.topic));
+    const existingTopics = new Set(existing.map((r: { topic: string }) => r.topic));
 
     let ingested = 0;
     let skipped = 0;
