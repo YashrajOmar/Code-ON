@@ -1,0 +1,107 @@
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+model User {
+  id             String             @id @default(cuid())
+  email          String             @unique
+  displayName    String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  apiKeys        ApiKey[]
+  codingProfiles CodingProfile[]
+  sessions       Session[]
+  topicProfiles  UserTopicProfile[]
+}
+
+model ApiKey {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider     String   // "gemini" | "openai" | "anthropic"
+  encryptedKey String   // Encrypted API key string
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, provider])
+}
+
+model CodingProfile {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform  String   // "leetcode" | "codeforces"
+  handle    String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, platform, handle])
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problemId  String?
+  code       String
+  language   String   @default("cpp17")
+  hints      Hint[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Hint {
+  id        String   @id @default(cuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  type      String
+  content   String
+  createdAt DateTime @default(now())
+}
+
+model Problem {
+  id             String   @id @default(cuid())
+  platform       String
+  url            String
+  data           String   // JSON string containing ScrapedProblem
+  fencing_token  BigInt   @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([platform, url])
+}
+
+// Stores a user's per-topic skill tier plus a 768-dimensional embedding of
+// their daily topic performance + coding style. Fed by the /api/webhooks/ingest
+// route and queried via pgvector cosine similarity (<=>) by lib/rag.ts.
+//
+// The embedding is produced by Google text-embedding-004 (768 dims).
+// `performanceSummary` keeps the source text that was embedded so profiles can
+// be re-embedded when the embedding model changes.
+//
+// NOTE: Prisma cannot declare an HNSW index declaratively. Create it via a
+// raw migration after `prisma migrate dev`:
+//   CREATE EXTENSION IF NOT EXISTS vector;
+//   CREATE INDEX "UserTopicProfile_embedding_hnsw"
+//     ON "UserTopicProfile" USING hnsw (embedding vector_cosine_ops);
+model UserTopicProfile {
+  id                 String                      @id @default(cuid())
+  userId             String
+  user               User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  topic              String
+  skillTier          String
+  performanceSummary String?
+  codeSnippet        String?
+  language           String?
+  embedding          Unsupported("vector(768)")?
+  updatedAt          DateTime                    @updatedAt
+
+  @@unique([userId, topic])
+  @@index([userId])
+}

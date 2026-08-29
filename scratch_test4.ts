@@ -1,0 +1,1 @@
+import { CodeforcesProblemScraper } from './packages/scrapers/src/platforms/codeforces-problems'; async function test() { const scraper = new CodeforcesProblemScraper(); const res = await scraper.scrapeProblem('https://codeforces.com/problemset/problem/4/A'); console.log(JSON.stringify(res, null, 2)); } test();

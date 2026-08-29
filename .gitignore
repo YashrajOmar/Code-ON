@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.turbo/
+.env
+.env.local
+.env.*.local
+*.log
+coverage/
+.next/
+# Companion app local data
+apps/companion/node_modules/
+*.db
+*.db-journal

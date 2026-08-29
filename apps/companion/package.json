@@ -1,0 +1,14 @@
+﻿{
+  "name": "@codeon/companion",
+  "version": "0.1.0",
+  "description": "CodeOn Companion — auto-syncs your CF/LC submissions to train your AI mentor",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js --dev",
+    "build": "npx pkg src/index.js --output codeon-companion"
+  },
+  "dependencies": {
+    "playwright": "^1.62.0"
+  }
+}

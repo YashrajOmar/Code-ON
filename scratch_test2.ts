@@ -1,0 +1,1 @@
+import { LeetCodeProblemScraper } from './packages/scrapers/src/platforms/leetcode-problems'; async function test() { const scraper = new LeetCodeProblemScraper(); const res = await scraper.scrapeProblem('https://leetcode.com/problems/two-sum'); console.log((res.problem as any).content.problemStatementMarkdown); } test();

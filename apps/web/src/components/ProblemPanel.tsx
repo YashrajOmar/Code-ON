@@ -1,0 +1,402 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import ProblemStatementView from "@/components/ProblemStatementView";
+import { useProblemStore } from "@/store/useProblemStore";
+import type { PublicScrapedProblemDTO } from "@codeon/scrapers";
+
+// Since ScrapedProblem does not currently have tags and difficulty natively,
+// we export an extended type so FlexLayoutWrapper and other files don't break immediately.
+// We will mock difficulty as 'medium' and tags as empty.
+export type ProblemData = PublicScrapedProblemDTO & {
+  difficulty?: string;
+  tags?: string[];
+  source?: string;
+};
+
+/** Generates dynamic optimization trail steps based on problem tags & difficulty */
+function getOptimizationTrail(tags: string[], difficulty: string) {
+  const tagList = tags.map((t) => t.toLowerCase());
+
+  if (tagList.some((t) => t.includes("dp") || t.includes("dynamic"))) {
+    return [
+      { level: "recursion", label: "Brute Force O(2ⁿ)", desc: "Naive Recursive Tree Search", done: false, current: true },
+      { level: "memoization", label: "Top-Down DP O(N)", desc: "Recursion + Hash/Memoization Cache", done: false },
+      { level: "tabulation", label: "Optimal Bottom-Up O(N)", desc: "1D/2D Tabulation Space-Optimized", done: false },
+    ];
+  }
+
+  if (tagList.some((t) => t.includes("binary_search") || t.includes("binary search"))) {
+    return [
+      { level: "linear", label: "Linear Search O(N)", desc: "Sequential Search over Range", done: false, current: true },
+      { level: "binary_search", label: "Binary Search O(log N)", desc: "Binary Search on Monotonic Search Space", done: false },
+      { level: "optimal", label: "Optimal O(log N)", desc: "Binary Search with Bitwise Bounds", done: false },
+    ];
+  }
+
+  if (tagList.some((t) => t.includes("hash") || t.includes("map") || t.includes("array"))) {
+    return [
+      { level: "brute_force", label: "Brute Force O(N²)", desc: "Nested Loop Search", done: false, current: true },
+      { level: "hash_map", label: "Hash Map O(N)", desc: "Hash Map Single-Pass Lookup", done: false },
+      { level: "optimal", label: "Optimal O(N)", desc: "In-Place Single-Pass Memory-Optimized", done: false },
+    ];
+  }
+
+  if (tagList.some((t) => t.includes("sort") || t.includes("two_pointer"))) {
+    return [
+      { level: "brute_force", label: "Brute Force O(N²)", desc: "Pairwise Search", done: false, current: true },
+      { level: "sorting", label: "Sorting O(N log N)", desc: "Sort + Two-Pointer Technique", done: false },
+      { level: "optimal", label: "Optimal O(N)", desc: "Radix / Counting Sort or Linear Scan", done: false },
+    ];
+  }
+
+  // Default dynamic fallback
+  return [
+    { level: "naive", label: "Naive Approach", desc: "Direct Simulation / Brute Force", done: false, current: true },
+    { level: "pattern", label: "Pattern Optimization", desc: "Identify Optimal Data Structure", done: false },
+    { level: "optimal", label: `Optimal Solution (${difficulty.toUpperCase()})`, desc: "Scalable Target Complexity", done: false },
+  ];
+}
+
+interface ProblemPanelProps {
+  onProblemLoaded?: (p: ProblemData) => void;
+  autoLoadUrl?: string | null;
+  onAutoLoadDone?: () => void;
+  activeTab?: "statement" | "trail" | "editorial";
+  problemData?: ProblemData | null;
+}
+
+export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadDone, activeTab: externalTab, problemData: externalProblem }: ProblemPanelProps) {
+  const [internalTab, setTab] = useState<"statement" | "trail" | "editorial">("statement");
+  const tab = externalTab ?? internalTab;
+
+  const [internalProblem, setInternalProblem] = useState<ProblemData | null>(null);
+  const problem = externalProblem !== undefined ? externalProblem : internalProblem;
+  const [urlInput, setUrlInput] = useState("");
+  const [isScraping, setIsScraping] = useState(false);
+  const [scrapeError, setScrapeError] = useState<string | null>(null);
+  const [scrapeProgress, setScrapeProgress] = useState<string | null>(null);
+
+  const setScrapedProblem = useProblemStore((state) => state.setScrapedProblem);
+
+  // Auto-load when parent passes a URL (e.g. clicking recommendation in Dashboard)
+  useEffect(() => {
+    if (!autoLoadUrl) return;
+    setUrlInput(autoLoadUrl);
+    scrapeUrl(autoLoadUrl);
+    onAutoLoadDone?.();
+  }, [autoLoadUrl]);
+
+  function updateProblem(p: PublicScrapedProblemDTO) {
+    const pData: ProblemData = {
+      ...p,
+      difficulty: "medium", // mock default
+      tags: [], // mock default
+      source: p.platform
+    };
+    setInternalProblem(pData);
+    setScrapedProblem(p as any);
+    onProblemLoaded?.(pData);
+  }
+
+  async function scrapeUrl(url: string) {
+    if (!url.trim() || isScraping) return;
+    setIsScraping(true);
+    setScrapeError(null);
+    setScrapeProgress("Initializing scraper...");
+
+    try {
+      const res = await fetch("/api/problem/scrape", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: url.trim() }),
+      });
+
+      if (!res.body) {
+        throw new Error("No response body");
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+
+        for (const part of parts) {
+          if (!part.trim()) continue;
+
+          let eventName = "message";
+          let eventData = "";
+
+          const lines = part.split("\n");
+          for (const line of lines) {
+            if (line.startsWith("event:")) {
+              eventName = line.substring(6).trim();
+            } else if (line.startsWith("data:")) {
+              eventData = line.substring(5).trim();
+            }
+          }
+
+          if (eventData) {
+            try {
+              const data = JSON.parse(eventData);
+              if (eventName === "progress") {
+                setScrapeProgress(data.message);
+              } else if (eventName === "success") {
+                updateProblem(data.data);
+                setUrlInput("");
+                setTab("statement");
+              } else if (eventName === "error") {
+                setScrapeError(data.message || "Failed to scrape problem");
+              }
+            } catch (e) {
+              console.error("Failed to parse SSE data", e);
+            }
+          }
+        }
+      }
+    } catch {
+      setScrapeError("Network error. Could not reach scraper service.");
+    } finally {
+      setIsScraping(false);
+      setScrapeProgress(null);
+    }
+  }
+
+  function handleImportProblem() {
+    scrapeUrl(urlInput);
+  }
+
+  return (
+    <div style={{
+      width: "100%",
+      height: "100vh",
+      display: "flex",
+      flexDirection: "column",
+      background: "var(--surface-1)",
+      borderRight: "1px solid var(--border-subtle)",
+    }}>
+      {/* URL Import Bar */}
+      <div style={{
+        padding: "12px 16px",
+        background: "var(--surface-2)",
+        borderBottom: "1px solid var(--border-subtle)",
+      }}>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          🔗 Import Problem Link
+        </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <input
+            type="text"
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleImportProblem(); }}
+            placeholder="Paste LeetCode or Codeforces URL…"
+            style={{
+              flex: 1, padding: "6px 10px", borderRadius: 6,
+              background: "var(--surface-3)", border: "1px solid var(--border-default)",
+              color: "var(--text-primary)", fontSize: 12, outline: "none",
+            }}
+          />
+          <button
+            onClick={handleImportProblem}
+            disabled={isScraping || !urlInput.trim()}
+            style={{
+              padding: "6px 12px", borderRadius: 6, border: "none",
+              background: "linear-gradient(135deg, var(--brand-violet), var(--brand-indigo))",
+              color: "white", fontSize: 12, fontWeight: 600,
+              cursor: (isScraping || !urlInput.trim()) ? "not-allowed" : "pointer",
+              opacity: (isScraping || !urlInput.trim()) ? 0.6 : 1,
+              whiteSpace: "nowrap",
+            }}
+          >
+            {isScraping ? "Scraping…" : "Import"}
+          </button>
+        </div>
+        {isScraping && scrapeProgress && (
+          <div style={{ fontSize: 11, color: "var(--brand-violet-light)", marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span className="spinner" style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid rgba(255,255,255,0.2)', borderTopColor: 'currentColor', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></span>
+            {scrapeProgress}
+          </div>
+        )}
+        {scrapeError && (
+          <div style={{ fontSize: 11, color: "var(--brand-rose)", marginTop: 6 }}>
+            ⚠️ {scrapeError}
+          </div>
+        )}
+      </div>
+
+      {!problem ? (
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", padding: 20, textAlign: "center", color: "var(--text-muted)" }}>
+          <div style={{ fontSize: 40, marginBottom: 16 }}>🎯</div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)", marginBottom: 8 }}>No Problem Loaded</div>
+          <div style={{ fontSize: 13, maxWidth: 300, lineHeight: 1.5 }}>
+            Paste a Codeforces or LeetCode URL above to import a problem and start solving.
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Header */}
+          <div style={{ padding: "14px 20px 0", borderBottom: "1px solid var(--border-subtle)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+              <h1 style={{ fontSize: 15, fontWeight: 700, flex: 1, color: "var(--text-primary)", lineHeight: 1.3 }}>
+                {problem.title}
+              </h1>
+              <span className={`tag tag-${problem.difficulty === "easy" ? "emerald" : problem.difficulty === "medium" ? "amber" : "rose"}`}>
+                {problem.difficulty}
+              </span>
+            </div>
+            {!externalTab && (
+            <div style={{ display: "flex", gap: 2 }}>
+              {(["statement", "trail", "editorial"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setTab(t)}
+                  style={{
+                    padding: "7px 14px",
+                    background: "none", border: "none",
+                    fontSize: 12, fontWeight: 500, cursor: "pointer",
+                    color: tab === t ? "var(--brand-violet-light)" : "var(--text-muted)",
+                    borderBottom: `2px solid ${tab === t ? "var(--brand-violet)" : "transparent"}`,
+                    transition: "all 0.15s",
+                    textTransform: "capitalize",
+                  }}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+            )}
+          </div>
+
+          {/* Content */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "20px" }}>
+            {tab === "statement" && (
+              <div className="animate-fade-in">
+                {/* Source & Tags */}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 6 }}>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "JetBrains Mono", textTransform: "capitalize" }}>
+                    {problem.source}
+                  </div>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                    {problem.tags?.map((tag) => (
+                      <span key={tag} className="tag tag-cyan">{tag.replace(/_/g, " ")}</span>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Statement */}
+                <div style={{ marginBottom: 20 }}>
+                  <ProblemStatementView content={problem.content.problemStatementMarkdown} />
+                </div>
+
+                {/* Constraints */}
+                {problem.content.constraintsMarkdown && (
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                      Constraints
+                    </div>
+                    <ProblemStatementView content={problem.content.constraintsMarkdown} />
+                  </div>
+                )}
+
+                {/* Examples */}
+                {problem.examples && problem.examples.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                      Sample Examples ({problem.examples.length})
+                    </div>
+                    {problem.examples.map((ex, i) => (
+                      <div key={i} style={{
+                        marginBottom: 12, padding: 12, background: "var(--surface-2)",
+                        borderRadius: 8, border: "1px solid var(--border-subtle)"
+                      }}>
+                        <div style={{ marginBottom: 6 }}>
+                          <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase" }}>Input</span>
+                          <pre style={{
+                            fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--brand-cyan)",
+                            background: "var(--surface-3)", padding: "6px 8px", borderRadius: 4, margin: "4px 0 0",
+                            whiteSpace: "pre-wrap", wordBreak: "break-all"
+                          }}>{ex.input}</pre>
+                        </div>
+                        <div style={{ marginBottom: 6 }}>
+                          <span style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase" }}>Output</span>
+                          <pre style={{
+                            fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--brand-emerald)",
+                            background: "var(--surface-3)", padding: "6px 8px", borderRadius: 4, margin: "4px 0 0",
+                            whiteSpace: "pre-wrap", wordBreak: "break-all"
+                          }}>{ex.output}</pre>
+                        </div>
+                        {ex.explanation && (
+                          <div style={{ borderTop: "1px solid var(--border-subtle)", paddingTop: 6, marginTop: 6 }}>
+                            <ProblemStatementView content={ex.explanation} />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {tab === "trail" && (
+              <div className="animate-fade-in">
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>
+                    Optimization Trail
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                    Target progression for {problem.title} {(problem.tags || []).join(", ") || "General"}.
+                  </div>
+                </div>
+                {getOptimizationTrail(problem.tags || [], problem.difficulty || "medium").map((step, i) => (
+                  <div key={step.level} style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+                    <div style={{
+                      width: 24, height: 24, borderRadius: "50%",
+                      background: step.done ? "var(--brand-emerald)" : step.current ? "var(--brand-violet)" : "var(--surface-4)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 11, color: "white", fontWeight: 700, flexShrink: 0
+                    }}>
+                      {step.done ? "✓" : i + 1}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: step.current ? 600 : 400, color: step.current ? "var(--text-primary)" : "var(--text-muted)" }}>
+                        {step.desc} <span style={{ color: "var(--brand-cyan)", fontFamily: "JetBrains Mono", fontSize: 11 }}>({step.label})</span>
+                      </div>
+                      {step.current && (
+                        <div style={{ fontSize: 11, color: "var(--brand-violet-light)", marginTop: 2 }}>← Current target</div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {tab === "editorial" && (
+              <div className="animate-fade-in">
+                <div style={{ padding: "16px", background: "var(--surface-2)", borderRadius: 10, border: "1px solid var(--border-subtle)" }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 8 }}>
+                    Scraped Editorial & Optimal Strategy
+                  </div>
+                  {problem.content.editorialMarkdown ? (
+                    <ProblemStatementView content={problem.content.editorialMarkdown} />
+                  ) : (
+                    <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.7 }}>
+                      Editorial not available. The AI mentor uses ground-truth solutions to guide your hints step-by-step.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
