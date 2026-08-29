@@ -20,7 +20,7 @@ export async function GET() {
       ORDER BY "updatedAt" DESC
     `;
 
-    const solutions = rows.map((r) => {
+    const solutions = rows.map((r: { topic: string; performanceSummary: string | null }) => {
       // Extract problem title from the performance summary
       const titleMatch = r.performanceSummary?.match(/solution "([^"]+)"/);
       return {
