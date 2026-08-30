@@ -202,27 +202,27 @@
 }
 
 /* Doomsday animated background */
-.theme-doomsday body::before {
+body.theme-doomsday::before {
   content: '';
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
   background: 
-    radial-gradient(ellipse at 20% 80%, rgba(232,197,71,0.04) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 20%, rgba(198,40,40,0.04) 0%, transparent 50%),
-    radial-gradient(ellipse at 50% 50%, rgba(66,165,245,0.02) 0%, transparent 70%);
+    radial-gradient(ellipse at 20% 80%, rgba(232,197,71,0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(198,40,40,0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(66,165,245,0.03) 0%, transparent 70%);
   animation: doomsday-pulse 8s ease-in-out infinite;
 }
 
 @keyframes doomsday-pulse {
   0%, 100% { 
-    opacity: 0.5;
+    opacity: 0.6;
     transform: scale(1);
   }
   50% { 
     opacity: 1;
-    transform: scale(1.05);
+    transform: scale(1.08);
   }
 }
 
@@ -232,7 +232,7 @@
     transform: translateY(0) translateX(0);
   }
   20% {
-    opacity: 0.6;
+    opacity: 0.8;
   }
   100% {
     opacity: 0;
@@ -240,21 +240,24 @@
   }
 }
 
-.theme-doomsday body::after {
+body.theme-doomsday::after {
   content: '';
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
   background-image: 
-    radial-gradient(2px 2px at 10% 90%, rgba(232,197,71,0.3), transparent),
-    radial-gradient(1px 1px at 30% 70%, rgba(232,197,71,0.2), transparent),
-    radial-gradient(2px 2px at 50% 85%, rgba(198,40,40,0.2), transparent),
-    radial-gradient(1px 1px at 70% 75%, rgba(232,197,71,0.3), transparent),
-    radial-gradient(2px 2px at 85% 95%, rgba(198,40,40,0.2), transparent),
-    radial-gradient(1px 1px at 15% 50%, rgba(232,197,71,0.2), transparent),
-    radial-gradient(1px 1px at 60% 40%, rgba(232,197,71,0.15), transparent),
-    radial-gradient(2px 2px at 90% 60%, rgba(198,40,40,0.15), transparent);
+    radial-gradient(2px 2px at 10% 90%, rgba(232,197,71,0.4), transparent),
+    radial-gradient(1px 1px at 30% 70%, rgba(232,197,71,0.3), transparent),
+    radial-gradient(2px 2px at 50% 85%, rgba(198,40,40,0.3), transparent),
+    radial-gradient(1px 1px at 70% 75%, rgba(232,197,71,0.4), transparent),
+    radial-gradient(2px 2px at 85% 95%, rgba(198,40,40,0.3), transparent),
+    radial-gradient(1px 1px at 15% 50%, rgba(232,197,71,0.3), transparent),
+    radial-gradient(1px 1px at 60% 40%, rgba(232,197,71,0.2), transparent),
+    radial-gradient(2px 2px at 90% 60%, rgba(198,40,40,0.2), transparent),
+    radial-gradient(1px 1px at 25% 25%, rgba(232,197,71,0.2), transparent),
+    radial-gradient(1px 1px at 75% 15%, rgba(198,40,40,0.2), transparent);
+  background-size: 100% 100%;
   animation: doomsday-embers 6s linear infinite;
 }
 
