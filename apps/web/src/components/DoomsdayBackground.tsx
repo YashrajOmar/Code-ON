@@ -255,9 +255,9 @@ export default function DoomsdayBackground() {
             style={{
               maxHeight: "70vh",
               maxWidth: "70vw",
-              objectFit: "contain",
-              opacity: 0.08,
-              filter: `blur(2px) drop-shadow(0 0 60px ${current.glow})`,
+              objectFit: "cover",
+              opacity: 0.15,
+              filter: "drop-shadow(0 0 80px rgba(0,255,157,0.1))",
             }}
           />
         </div>
