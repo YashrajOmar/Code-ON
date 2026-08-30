@@ -169,36 +169,36 @@
 }
 
 .theme-doomsday {
-  /* Avengers Doomsday: Iron Man gold + red on deep black */
-  --brand-violet: #e8c547;
-  --brand-violet-light: #f5dc7a;
-  --brand-violet-dark: #b8941e;
-  --brand-indigo: #c62828;
-  --brand-cyan: #42a5f5;
-  --brand-emerald: #2ecc71;
-  --brand-amber: #e8c547;
-  --brand-rose: #c62828;
+  /* Post-snap Doomsday: green energy on deep black */
+  --brand-violet: #00ff9d;
+  --brand-violet-light: #5fffbe;
+  --brand-violet-dark: #00cc7a;
+  --brand-indigo: #00d4ff;
+  --brand-cyan: #00d4ff;
+  --brand-emerald: #00ff9d;
+  --brand-amber: #ffb800;
+  --brand-rose: #ff3366;
 
-  --surface-0: #080000;
-  --surface-1: #0f0202;
-  --surface-2: #160505;
-  --surface-3: #1e0808;
-  --surface-4: #280c0c;
-  --surface-5: #321010;
+  --surface-0: #000505;
+  --surface-1: #050d0d;
+  --surface-2: #0a1414;
+  --surface-3: #0f1f1f;
+  --surface-4: #142828;
+  --surface-5: #1a3333;
 
-  --text-primary: #f5dc7a;
-  --text-secondary: #c0a060;
-  --text-muted: #604030;
-  --text-inverse: #080000;
+  --text-primary: #e0fff5;
+  --text-secondary: #80c0b0;
+  --text-muted: #406060;
+  --text-inverse: #000505;
 
-  --border-subtle: rgba(232,197,71,0.10);
-  --border-default: rgba(232,197,71,0.20);
-  --border-strong: rgba(198,40,40,0.4);
-  --border-violet: rgba(232,197,71,0.5);
+  --border-subtle: rgba(0,255,157,0.08);
+  --border-default: rgba(0,255,157,0.15);
+  --border-strong: rgba(0,212,255,0.25);
+  --border-violet: rgba(0,255,157,0.4);
 
-  --glow-violet: 0 0 40px rgba(232,197,71,0.3);
-  --glow-cyan: 0 0 40px rgba(66,165,245,0.2);
-  --glow-emerald: 0 0 40px rgba(46,204,113,0.2);
+  --glow-violet: 0 0 40px rgba(0,255,157,0.25);
+  --glow-cyan: 0 0 40px rgba(0,212,255,0.2);
+  --glow-emerald: 0 0 40px rgba(0,255,157,0.2);
 }
 
 /* Doomsday background is handled by DoomsdayBackground.tsx canvas */
