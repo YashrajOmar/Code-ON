@@ -201,6 +201,63 @@
   --glow-emerald: 0 0 40px rgba(46,204,113,0.2);
 }
 
+/* Doomsday animated background */
+.theme-doomsday body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: 
+    radial-gradient(ellipse at 20% 80%, rgba(232,197,71,0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 20%, rgba(198,40,40,0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 50%, rgba(66,165,245,0.02) 0%, transparent 70%);
+  animation: doomsday-pulse 8s ease-in-out infinite;
+}
+
+@keyframes doomsday-pulse {
+  0%, 100% { 
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% { 
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes doomsday-embers {
+  0% {
+    opacity: 0;
+    transform: translateY(0) translateX(0);
+  }
+  20% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-100vh) translateX(20px);
+  }
+}
+
+.theme-doomsday body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: 
+    radial-gradient(2px 2px at 10% 90%, rgba(232,197,71,0.3), transparent),
+    radial-gradient(1px 1px at 30% 70%, rgba(232,197,71,0.2), transparent),
+    radial-gradient(2px 2px at 50% 85%, rgba(198,40,40,0.2), transparent),
+    radial-gradient(1px 1px at 70% 75%, rgba(232,197,71,0.3), transparent),
+    radial-gradient(2px 2px at 85% 95%, rgba(198,40,40,0.2), transparent),
+    radial-gradient(1px 1px at 15% 50%, rgba(232,197,71,0.2), transparent),
+    radial-gradient(1px 1px at 60% 40%, rgba(232,197,71,0.15), transparent),
+    radial-gradient(2px 2px at 90% 60%, rgba(198,40,40,0.15), transparent);
+  animation: doomsday-embers 6s linear infinite;
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
