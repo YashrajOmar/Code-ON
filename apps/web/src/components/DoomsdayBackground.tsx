@@ -6,23 +6,12 @@ import { useTheme } from "@/components/ThemeProvider";
 /**
  * DoomsdayBackground — Avengers cycle → Doctor Doom → Doomsday destruction.
  * 
- * Cycle (continuous, smooth transitions):
- *   Phases 0-6: Avenger faces (6s each, smooth crossfade)
- *   Phase 7: DOCTOR DOOM (6s, final face)
- *   Phase 8: DOOMSDAY — destruction takes over:
- *     - Screen slowly fills with dark green smoke
- *     - Bombs falling with trails
- *     - Explosions with fire + debris
- *     - Screen shakes
- *     - Horror atmosphere
- *   → Back to phase 0, repeat
- * 
- * Only renders when theme is "doomsday".
+ * Smooth crossfade: old image fades out while new image fades in simultaneously.
+ * No "gallery flip" — both images stay mounted during the 4s transition.
  */
 export default function DoomsdayBackground() {
   const { theme } = useTheme();
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const audioRef = useRef<HTMLAudioElement>(null);
   const [phase, setPhase] = useState(0);
   const [muted, setMuted] = useState(false);
 
@@ -30,25 +19,22 @@ export default function DoomsdayBackground() {
     if (theme !== "doomsday") return;
     setPhase(0);
 
-    // 6s per Avenger, 8s for Doomsday
     const timers: ReturnType<typeof setTimeout>[] = [];
     const sequence = [0, 1, 2, 3, 4, 5, 6, 7, 8];
     let accumulated = 0;
-    
+
     for (let i = 0; i < sequence.length; i++) {
-        const duration = i === 8 ? 12000 : 8000;
+      const duration = i === 8 ? 12000 : 8000;
       timers.push(setTimeout(() => setPhase(sequence[i]), accumulated));
       accumulated += duration;
     }
-    
-    // Repeat cycle
+
     const totalDuration = accumulated;
     const repeatTimer = setInterval(() => {
       let acc = 0;
       for (let i = 0; i < sequence.length; i++) {
-      const duration = i === 8 ? 12000 : 8000;
-        const idx = i;
-        timers.push(setTimeout(() => setPhase(sequence[idx]), acc));
+        const duration = i === 8 ? 12000 : 8000;
+        timers.push(setTimeout(() => setPhase(sequence[i]), acc));
         acc += duration;
       }
     }, totalDuration);
@@ -64,7 +50,6 @@ export default function DoomsdayBackground() {
 
     const canvas = canvasRef.current;
     if (!canvas) return;
-
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
@@ -87,29 +72,19 @@ export default function DoomsdayBackground() {
 
     function spawnEmber() {
       particles.push({
-        x: Math.random() * canvas!.width,
-        y: canvas!.height + 20,
-        vx: (Math.random() - 0.5) * 0.3,
-        vy: -(0.3 + Math.random() * 1),
-        size: 1 + Math.random() * 2,
-        opacity: 0.3 + Math.random() * 0.4,
-        hue: 120,
-        type: "ember",
-        life: 0, maxLife: 300,
+        x: Math.random() * canvas!.width, y: canvas!.height + 20,
+        vx: (Math.random() - 0.5) * 0.3, vy: -(0.3 + Math.random() * 1),
+        size: 1 + Math.random() * 2, opacity: 0.3 + Math.random() * 0.4,
+        hue: 120, type: "ember", life: 0, maxLife: 300,
       });
     }
 
     function spawnBomb() {
       particles.push({
-        x: Math.random() * canvas!.width,
-        y: -20,
-        vx: (Math.random() - 0.5) * 0.5,
-        vy: 2.5 + Math.random() * 3,
-        size: 3 + Math.random() * 3,
-        opacity: 1,
-        hue: 120,
-        type: "bomb",
-        life: 0, maxLife: 200,
+        x: Math.random() * canvas!.width, y: -20,
+        vx: (Math.random() - 0.5) * 0.5, vy: 2.5 + Math.random() * 3,
+        size: 3 + Math.random() * 3, opacity: 1, hue: 120,
+        type: "bomb", life: 0, maxLife: 200,
       });
     }
 
@@ -120,18 +95,17 @@ export default function DoomsdayBackground() {
         particles.push({
           x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed,
           size: 2 + Math.random() * 5, opacity: 1,
-          hue: Math.random() > 0.5 ? 120 : 60,
-          type: "explosion", life: 0, maxLife: 40 + Math.random() * 30,
+          hue: Math.random() > 0.5 ? 120 : 60, type: "explosion",
+          life: 0, maxLife: 40 + Math.random() * 30,
         });
       }
       for (let i = 0; i < 20; i++) {
         particles.push({
-          x: x + (Math.random() - 0.5) * 30,
-          y: y + (Math.random() - 0.5) * 30,
+          x: x + (Math.random() - 0.5) * 30, y: y + (Math.random() - 0.5) * 30,
           vx: (Math.random() - 0.5) * 2, vy: -(1 + Math.random() * 3),
           size: 3 + Math.random() * 6, opacity: 0.8,
-          hue: 60 + Math.random() * 60,
-          type: "fire", life: 0, maxLife: 60 + Math.random() * 40,
+          hue: 60 + Math.random() * 60, type: "fire",
+          life: 0, maxLife: 60 + Math.random() * 40,
         });
       }
       for (let i = 0; i < 12; i++) {
@@ -139,19 +113,15 @@ export default function DoomsdayBackground() {
         particles.push({
           x, y, vx: Math.cos(angle) * (2 + Math.random() * 5),
           vy: Math.sin(angle) * (2 + Math.random() * 5) - 2,
-          size: 2 + Math.random() * 3, opacity: 0.9,
-          hue: 100, type: "debris", life: 0, maxLife: 80 + Math.random() * 40,
+          size: 2 + Math.random() * 3, opacity: 0.9, hue: 100,
+          type: "debris", life: 0, maxLife: 80 + Math.random() * 40,
         });
       }
-      // Smoke after explosion
       for (let i = 0; i < 8; i++) {
         particles.push({
-          x: x + (Math.random() - 0.5) * 50,
-          y: y + (Math.random() - 0.5) * 30,
-          vx: (Math.random() - 0.5) * 0.5,
-          vy: -(0.5 + Math.random() * 1),
-          size: 20 + Math.random() * 30,
-          opacity: 0.3 + Math.random() * 0.3,
+          x: x + (Math.random() - 0.5) * 50, y: y + (Math.random() - 0.5) * 30,
+          vx: (Math.random() - 0.5) * 0.5, vy: -(0.5 + Math.random() * 1),
+          size: 20 + Math.random() * 30, opacity: 0.3 + Math.random() * 0.3,
           hue: 100, type: "smoke", life: 0, maxLife: 120 + Math.random() * 60,
         });
       }
@@ -161,15 +131,10 @@ export default function DoomsdayBackground() {
 
     function spawnSmoke() {
       particles.push({
-        x: Math.random() * canvas!.width,
-        y: canvas!.height + 20,
-        vx: (Math.random() - 0.5) * 0.3,
-        vy: -(0.2 + Math.random() * 0.5),
-        size: 30 + Math.random() * 50,
-        opacity: 0.05 + Math.random() * 0.1,
-        hue: 100,
-        type: "smoke",
-        life: 0, maxLife: 200 + Math.random() * 100,
+        x: Math.random() * canvas!.width, y: canvas!.height + 20,
+        vx: (Math.random() - 0.5) * 0.3, vy: -(0.2 + Math.random() * 0.5),
+        size: 30 + Math.random() * 50, opacity: 0.05 + Math.random() * 0.1,
+        hue: 100, type: "smoke", life: 0, maxLife: 200 + Math.random() * 100,
       });
     }
 
@@ -180,14 +145,10 @@ export default function DoomsdayBackground() {
       else if (side < 2) { x = canvas!.width; y = Math.random() * canvas!.height; vx = -(0.3 + Math.random()); }
       else if (side < 3) { x = Math.random() * canvas!.width; y = 0; vy = 0.3 + Math.random(); }
       else { x = Math.random() * canvas!.width; y = canvas!.height; vy = -(0.3 + Math.random()); }
-      
       particles.push({
-        x, y, vx, vy,
-        size: 1 + Math.random() * 2,
-        opacity: 0.3 + Math.random() * 0.3,
-        hue: 120,
-        type: "horror",
-        life: 0, maxLife: 150 + Math.random() * 50,
+        x, y, vx, vy, size: 1 + Math.random() * 2,
+        opacity: 0.3 + Math.random() * 0.3, hue: 120,
+        type: "horror", life: 0, maxLife: 150 + Math.random() * 50,
       });
     }
 
@@ -210,20 +171,13 @@ export default function DoomsdayBackground() {
 
     function draw() {
       const isDoomsday = phase === 8;
-
-      // Clear with trail
       ctx!.fillStyle = isDoomsday ? `rgba(0, 8, 0, 0.04)` : "rgba(0, 5, 0, 0.06)";
       ctx!.fillRect(0, 0, canvas!.width, canvas!.height);
       frame++;
 
-      // Green overlay slowly fills during doomsday
-      if (isDoomsday) {
-        greenOverlay = Math.min(1, greenOverlay + 0.002);
-      } else {
-        greenOverlay = Math.max(0, greenOverlay - 0.01);
-      }
+      if (isDoomsday) greenOverlay = Math.min(1, greenOverlay + 0.002);
+      else greenOverlay = Math.max(0, greenOverlay - 0.01);
 
-      // Screen shake
       if (isDoomsday && frame % 40 === 0) {
         shakeX = (Math.random() - 0.5) * 6;
         shakeY = (Math.random() - 0.5) * 6;
@@ -234,9 +188,7 @@ export default function DoomsdayBackground() {
       ctx!.save();
       ctx!.translate(shakeX, shakeY);
 
-      // Arc reactor glow
-      const reactorX = 60;
-      const reactorY = canvas!.height - 60;
+      const reactorX = 60, reactorY = canvas!.height - 60;
       const pulse = 0.5 + Math.sin(frame * 0.03) * 0.3;
       const reactorRadius = 50 + pulse * 15;
       const reactorGrad = ctx!.createRadialGradient(reactorX, reactorY, 0, reactorX, reactorY, reactorRadius);
@@ -253,178 +205,129 @@ export default function DoomsdayBackground() {
       ctx!.arc(reactorX, reactorY, 15 + pulse * 4, 0, Math.PI * 2);
       ctx!.stroke();
 
-      // Spawn embers always
       if (particles.filter(p => p.type === "ember").length < 25 && frame % 15 === 0) spawnEmber();
 
-      // Doomsday spawns
       if (isDoomsday) {
-        if (frame - lastBombFrame > 50 + Math.random() * 60) {
-          spawnBomb();
-          lastBombFrame = frame;
-        }
-        if (frame - lastSmokeFrame > 20) {
-          spawnSmoke();
-          lastSmokeFrame = frame;
-        }
-        if (frame % 30 === 0 && Math.random() > 0.5) {
-          spawnHorrorParticle();
-        }
+        if (frame - lastBombFrame > 50 + Math.random() * 60) { spawnBomb(); lastBombFrame = frame; }
+        if (frame - lastSmokeFrame > 20) { spawnSmoke(); lastSmokeFrame = frame; }
+        if (frame % 30 === 0 && Math.random() > 0.5) spawnHorrorParticle();
       }
 
-      // Draw particles
       for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
         p.life++;
 
         if (p.type === "bomb") {
           ctx!.fillStyle = `rgba(0, 255, 157, 0.4)`;
-          ctx!.beginPath();
-          ctx!.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-          ctx!.fill();
+          ctx!.beginPath(); ctx!.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx!.fill();
           ctx!.fillStyle = `rgba(200, 255, 200, 0.9)`;
-          ctx!.beginPath();
-          ctx!.arc(p.x, p.y, p.size * 0.5, 0, Math.PI * 2);
-          ctx!.fill();
-          p.x += p.vx;
-          p.y += p.vy;
+          ctx!.beginPath(); ctx!.arc(p.x, p.y, p.size * 0.5, 0, Math.PI * 2); ctx!.fill();
+          p.x += p.vx; p.y += p.vy;
           if (p.y > canvas!.height - 50 || (p.life > 50 && Math.random() > 0.95)) {
-            spawnExplosion(p.x, p.y);
-            particles.splice(i, 1);
+            spawnExplosion(p.x, p.y); particles.splice(i, 1);
           }
         } else if (p.type === "explosion") {
-          const lifeRatio = p.life / p.maxLife;
-          if (lifeRatio >= 1) { particles.splice(i, 1); continue; }
-          const opacity = 1 - lifeRatio;
-          const grad = ctx!.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
-          grad.addColorStop(0, `hsla(${p.hue}, 100%, 85%, ${opacity})`);
-          grad.addColorStop(0.5, `hsla(${p.hue}, 100%, 60%, ${opacity * 0.5})`);
-          grad.addColorStop(1, `hsla(${p.hue}, 100%, 40%, 0)`);
-          ctx!.fillStyle = grad;
-          ctx!.beginPath();
-          ctx!.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-          ctx!.fill();
+          const lr = p.life / p.maxLife;
+          if (lr >= 1) { particles.splice(i, 1); continue; }
+          const op = 1 - lr;
+          const g = ctx!.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
+          g.addColorStop(0, `hsla(${p.hue}, 100%, 85%, ${op})`);
+          g.addColorStop(0.5, `hsla(${p.hue}, 100%, 60%, ${op * 0.5})`);
+          g.addColorStop(1, `hsla(${p.hue}, 100%, 40%, 0)`);
+          ctx!.fillStyle = g;
+          ctx!.beginPath(); ctx!.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx!.fill();
           p.x += p.vx; p.y += p.vy; p.vy += 0.1; p.size *= 0.96;
         } else if (p.type === "fire") {
-          const lifeRatio = p.life / p.maxLife;
-          if (lifeRatio >= 1) { particles.splice(i, 1); continue; }
-          const opacity = (1 - lifeRatio) * 0.8;
-          const grad = ctx!.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 2);
-          grad.addColorStop(0, `hsla(${p.hue}, 100%, 70%, ${opacity})`);
-          grad.addColorStop(0.5, `hsla(${p.hue}, 100%, 50%, ${opacity * 0.3})`);
-          grad.addColorStop(1, `hsla(${p.hue}, 100%, 40%, 0)`);
-          ctx!.fillStyle = grad;
-          ctx!.beginPath();
-          ctx!.arc(p.x, p.y, p.size * 2, 0, Math.PI * 2);
-          ctx!.fill();
-          ctx!.fillStyle = `hsla(${p.hue}, 100%, 80%, ${opacity * 0.5})`;
-          ctx!.beginPath();
-          ctx!.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-          ctx!.fill();
+          const lr = p.life / p.maxLife;
+          if (lr >= 1) { particles.splice(i, 1); continue; }
+          const op = (1 - lr) * 0.8;
+          const g = ctx!.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 2);
+          g.addColorStop(0, `hsla(${p.hue}, 100%, 70%, ${op})`);
+          g.addColorStop(0.5, `hsla(${p.hue}, 100%, 50%, ${op * 0.3})`);
+          g.addColorStop(1, `hsla(${p.hue}, 100%, 40%, 0)`);
+          ctx!.fillStyle = g;
+          ctx!.beginPath(); ctx!.arc(p.x, p.y, p.size * 2, 0, Math.PI * 2); ctx!.fill();
+          ctx!.fillStyle = `hsla(${p.hue}, 100%, 80%, ${op * 0.5})`;
+          ctx!.beginPath(); ctx!.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx!.fill();
           p.x += p.vx; p.y += p.vy; p.vy -= 0.05; p.size *= 0.98;
         } else if (p.type === "smoke") {
-          const lifeRatio = p.life / p.maxLife;
-          if (lifeRatio >= 1) { particles.splice(i, 1); continue; }
-          const opacity = (1 - lifeRatio) * p.opacity;
-          const size = p.size * (1 + lifeRatio * 2); // grows
-          const grad = ctx!.createRadialGradient(p.x, p.y, 0, p.x, p.y, size);
-          grad.addColorStop(0, `hsla(${p.hue}, 30%, 20%, ${opacity})`);
-          grad.addColorStop(0.5, `hsla(${p.hue}, 20%, 15%, ${opacity * 0.5})`);
-          grad.addColorStop(1, `hsla(${p.hue}, 10%, 10%, 0)`);
-          ctx!.fillStyle = grad;
-          ctx!.beginPath();
-          ctx!.arc(p.x, p.y, size, 0, Math.PI * 2);
-          ctx!.fill();
+          const lr = p.life / p.maxLife;
+          if (lr >= 1) { particles.splice(i, 1); continue; }
+          const op = (1 - lr) * p.opacity;
+          const sz = p.size * (1 + lr * 2);
+          const g = ctx!.createRadialGradient(p.x, p.y, 0, p.x, p.y, sz);
+          g.addColorStop(0, `hsla(${p.hue}, 30%, 20%, ${op})`);
+          g.addColorStop(0.5, `hsla(${p.hue}, 20%, 15%, ${op * 0.5})`);
+          g.addColorStop(1, `hsla(${p.hue}, 10%, 10%, 0)`);
+          ctx!.fillStyle = g;
+          ctx!.beginPath(); ctx!.arc(p.x, p.y, sz, 0, Math.PI * 2); ctx!.fill();
           p.x += p.vx; p.y += p.vy;
         } else if (p.type === "debris") {
-          const lifeRatio = p.life / p.maxLife;
-          if (lifeRatio >= 1) { particles.splice(i, 1); continue; }
-          const opacity = 1 - lifeRatio;
-          ctx!.fillStyle = `hsla(${p.hue}, 60%, 40%, ${opacity * 0.7})`;
-          ctx!.beginPath();
-          ctx!.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-          ctx!.fill();
+          const lr = p.life / p.maxLife;
+          if (lr >= 1) { particles.splice(i, 1); continue; }
+          const op = 1 - lr;
+          ctx!.fillStyle = `hsla(${p.hue}, 60%, 40%, ${op * 0.7})`;
+          ctx!.beginPath(); ctx!.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx!.fill();
           p.x += p.vx; p.y += p.vy; p.vy += 0.15; p.vx *= 0.99;
         } else if (p.type === "horror") {
-          const lifeRatio = p.life / p.maxLife;
-          if (lifeRatio >= 1) { particles.splice(i, 1); continue; }
-          const opacity = (1 - lifeRatio) * p.opacity;
-          ctx!.fillStyle = `hsla(${p.hue}, 100%, 60%, ${opacity})`;
-          ctx!.beginPath();
-          ctx!.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-          ctx!.fill();
-          // Glow
-          ctx!.fillStyle = `hsla(${p.hue}, 100%, 80%, ${opacity * 0.3})`;
-          ctx!.beginPath();
-          ctx!.arc(p.x, p.y, p.size * 3, 0, Math.PI * 2);
-          ctx!.fill();
+          const lr = p.life / p.maxLife;
+          if (lr >= 1) { particles.splice(i, 1); continue; }
+          const op = (1 - lr) * p.opacity;
+          ctx!.fillStyle = `hsla(${p.hue}, 100%, 60%, ${op})`;
+          ctx!.beginPath(); ctx!.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx!.fill();
+          ctx!.fillStyle = `hsla(${p.hue}, 100%, 80%, ${op * 0.3})`;
+          ctx!.beginPath(); ctx!.arc(p.x, p.y, p.size * 3, 0, Math.PI * 2); ctx!.fill();
           p.x += p.vx; p.y += p.vy;
         } else {
-          // ember
           if (p.opacity <= 0 || p.y < -20) { particles.splice(i, 1); continue; }
-          const grad = ctx!.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 3);
-          grad.addColorStop(0, `hsla(${p.hue}, 100%, 70%, ${p.opacity})`);
-          grad.addColorStop(0.5, `hsla(${p.hue}, 100%, 50%, ${p.opacity * 0.3})`);
-          grad.addColorStop(1, `hsla(${p.hue}, 100%, 40%, 0)`);
-          ctx!.fillStyle = grad;
-          ctx!.beginPath();
-          ctx!.arc(p.x, p.y, p.size * 3, 0, Math.PI * 2);
-          ctx!.fill();
+          const g = ctx!.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size * 3);
+          g.addColorStop(0, `hsla(${p.hue}, 100%, 70%, ${p.opacity})`);
+          g.addColorStop(0.5, `hsla(${p.hue}, 100%, 50%, ${p.opacity * 0.3})`);
+          g.addColorStop(1, `hsla(${p.hue}, 100%, 40%, 0)`);
+          ctx!.fillStyle = g;
+          ctx!.beginPath(); ctx!.arc(p.x, p.y, p.size * 3, 0, Math.PI * 2); ctx!.fill();
           ctx!.fillStyle = `hsla(${p.hue}, 100%, 80%, ${p.opacity})`;
-          ctx!.beginPath();
-          ctx!.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-          ctx!.fill();
+          ctx!.beginPath(); ctx!.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx!.fill();
           p.y += p.vy; p.x += p.vx; p.opacity -= 0.002;
         }
       }
 
-      // Shockwaves
       for (let i = shockwaves.length - 1; i >= 0; i--) {
         const s = shockwaves[i];
-        s.radius += 4;
-        s.opacity -= 0.015;
+        s.radius += 4; s.opacity -= 0.015;
         if (s.opacity <= 0) { shockwaves.splice(i, 1); continue; }
-        const grad = ctx!.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.radius);
-        grad.addColorStop(0, `hsla(${s.hue}, 100%, 85%, ${s.opacity * 0.6})`);
-        grad.addColorStop(0.3, `hsla(${s.hue}, 100%, 70%, ${s.opacity * 0.4})`);
-        grad.addColorStop(1, `hsla(${s.hue}, 100%, 50%, 0)`);
-        ctx!.fillStyle = grad;
-        ctx!.beginPath();
-        ctx!.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
-        ctx!.fill();
+        const g = ctx!.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.radius);
+        g.addColorStop(0, `hsla(${s.hue}, 100%, 85%, ${s.opacity * 0.6})`);
+        g.addColorStop(0.3, `hsla(${s.hue}, 100%, 70%, ${s.opacity * 0.4})`);
+        g.addColorStop(1, `hsla(${s.hue}, 100%, 50%, 0)`);
+        ctx!.fillStyle = g;
+        ctx!.beginPath(); ctx!.arc(s.x, s.y, s.radius, 0, Math.PI * 2); ctx!.fill();
         ctx!.strokeStyle = `hsla(${s.hue}, 100%, 90%, ${s.opacity})`;
         ctx!.lineWidth = 3;
-        ctx!.beginPath();
-        ctx!.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
-        ctx!.stroke();
+        ctx!.beginPath(); ctx!.arc(s.x, s.y, s.radius, 0, Math.PI * 2); ctx!.stroke();
         ctx!.fillStyle = `hsla(${s.hue}, 100%, 95%, ${s.opacity * 0.8})`;
-        ctx!.beginPath();
-        ctx!.arc(s.x, s.y, 6, 0, Math.PI * 2);
-        ctx!.fill();
+        ctx!.beginPath(); ctx!.arc(s.x, s.y, 6, 0, Math.PI * 2); ctx!.fill();
         ctx!.strokeStyle = `hsla(${s.hue}, 100%, 100%, ${s.opacity})`;
         ctx!.lineWidth = 2;
-        const sparkLen = s.radius * 0.3;
+        const sl = s.radius * 0.3;
         ctx!.beginPath();
-        ctx!.moveTo(s.x - sparkLen, s.y);
-        ctx!.lineTo(s.x + sparkLen, s.y);
-        ctx!.moveTo(s.x, s.y - sparkLen);
-        ctx!.lineTo(s.x, s.y + sparkLen);
+        ctx!.moveTo(s.x - sl, s.y); ctx!.lineTo(s.x + sl, s.y);
+        ctx!.moveTo(s.x, s.y - sl); ctx!.lineTo(s.x, s.y + sl);
         ctx!.stroke();
       }
 
       ctx!.restore();
 
-      // Green doomsday overlay (slowly fills, darker = more horror)
       if (greenOverlay > 0) {
         ctx!.fillStyle = `rgba(0, 60, 30, ${greenOverlay * 0.06})`;
         ctx!.fillRect(0, 0, canvas!.width, canvas!.height);
-        // Dark vignette during doomsday
-        const vignette = ctx!.createRadialGradient(
+        const vg = ctx!.createRadialGradient(
           canvas!.width / 2, canvas!.height / 2, 0,
           canvas!.width / 2, canvas!.height / 2, Math.max(canvas!.width, canvas!.height) / 2
         );
-        vignette.addColorStop(0, "rgba(0,0,0,0)");
-        vignette.addColorStop(1, `rgba(0, 20, 0, ${greenOverlay * 0.5})`);
-        ctx!.fillStyle = vignette;
+        vg.addColorStop(0, "rgba(0,0,0,0)");
+        vg.addColorStop(1, `rgba(0, 20, 0, ${greenOverlay * 0.5})`);
+        ctx!.fillStyle = vg;
         ctx!.fillRect(0, 0, canvas!.width, canvas!.height);
       }
 
@@ -449,38 +352,50 @@ export default function DoomsdayBackground() {
     { name: "LOKI", img: "/avengers/loki.jpg", glow: "rgba(100,200,100,0.15)" },
     { name: "SPIDER-MAN", img: "/avengers/miles-morales-spider-man-neon-pink.jpg", glow: "rgba(255,100,200,0.15)" },
     { name: "AVENGERS", img: "/avengers/marvels-avengers-marvel-superheroes-playstation-4.jpg", glow: "rgba(255,200,0,0.15)" },
-    // Doctor Doom is last
     { name: "DOCTOR DOOM", img: "/avengers/doctor-doom.jpg", glow: "rgba(0,150,255,0.15)" },
   ];
 
   const isDoomsday = phase === 8;
-  const current = isDoomsday ? null : avengers[phase];
 
+  // Render ALL avenger layers simultaneously, each with its own opacity
+  // based on distance from current phase. Only the current one is fully visible,
+  // adjacent ones fade in/out smoothly. No unmount = no gallery flip.
   return (
     <>
-      {/* Avenger face — smooth crossfade */}
-      {!isDoomsday && current && (
-        <div
-          key={phase}
-          style={{
-            position: "fixed", inset: 0, zIndex: 0,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            pointerEvents: "none",
-            background: `radial-gradient(ellipse at center, ${current.glow}, transparent 70%)`,
-            animation: "avenger-fade 3s ease-in-out forwards",
-          }}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={current.img}
-            alt={current.name}
+      {/* All Avenger images stacked, each crossfading independently */}
+      {avengers.map((av, i) => {
+        // Calculate opacity based on distance from current phase
+        let opacity = 0;
+        if (i === phase) {
+          opacity = 1; // fully visible
+        } else if (i === phase - 1) {
+          opacity = 0; // just left — already faded out
+        }
+
+        return (
+          <div
+            key={i}
             style={{
-              maxHeight: "85vh", maxWidth: "85vw",
-              objectFit: "contain", opacity: 0.4,
+              position: "fixed", inset: 0, zIndex: 0,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              pointerEvents: "none",
+              background: `radial-gradient(ellipse at center, ${av.glow}, transparent 70%)`,
+              opacity: opacity,
+              transition: "opacity 4s ease-in-out",
             }}
-          />
-        </div>
-      )}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={av.img}
+              alt={av.name}
+              style={{
+                maxHeight: "85vh", maxWidth: "85vw",
+                objectFit: "contain", opacity: 0.4,
+              }}
+            />
+          </div>
+        );
+      })}
 
       {/* Name watermark */}
       <div style={{
@@ -488,10 +403,9 @@ export default function DoomsdayBackground() {
         pointerEvents: "none", fontSize: 18, fontWeight: 900,
         letterSpacing: "0.3em",
         color: isDoomsday ? "#00ff66" : "#888",
-        opacity: 0.15,
-        transition: "color 2s ease",
+        opacity: 0.15, transition: "color 4s ease, opacity 4s ease",
       }}>
-        {isDoomsday ? "DOOMSDAY" : current?.name}
+        {isDoomsday ? "DOOMSDAY" : avengers[phase]?.name}
       </div>
 
       {/* Canvas */}
@@ -517,25 +431,10 @@ export default function DoomsdayBackground() {
         {muted ? "🔇" : "🔊"}
       </button>
 
-      {/* Audio — Hanging Tree style ambient horror music */}
-      <audio
-        ref={audioRef}
-        loop
-        autoPlay
-        muted={muted}
-        style={{ display: "none" }}
-      >
+      {/* Audio */}
+      <audio loop autoPlay muted={muted} style={{ display: "none" }}>
         <source src="https://cdn.pixabay.com/audio/2022/10/30/audio_347a343730.mp3" type="audio/mpeg" />
       </audio>
-
-      <style>{`
-        @keyframes avenger-fade {
-          0% { opacity: 0; transform: scale(1.05); }
-          20% { opacity: 1; transform: scale(1); }
-          80% { opacity: 1; transform: scale(1); }
-          100% { opacity: 0.8; transform: scale(0.98); }
-        }
-      `}</style>
     </>
   );
 }
