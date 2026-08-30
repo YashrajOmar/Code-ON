@@ -24,7 +24,7 @@ export default function DoomsdayBackground() {
 
     // Matrix characters — mix of katakana, numbers, and code symbols
     const chars = "01<>{}[];()+-*/=&|!?$#@%アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン".split("");
-    const fontSize = 14;
+    const fontSize = 28;
     let columns: number = 0;
     let drops: number[] = [];
 
@@ -87,7 +87,7 @@ export default function DoomsdayBackground() {
         if (y > canvas!.height && Math.random() > 0.98) {
           drops[i] = 0;
         }
-        drops[i]++;
+        drops[i] += 0.3;
       }
 
       // Draw click shines
