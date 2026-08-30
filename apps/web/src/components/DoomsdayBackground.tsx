@@ -49,14 +49,14 @@ export default function DoomsdayBackground() {
     window.addEventListener("resize", resize);
 
     function onPointer(e: PointerEvent) {
-      const colors = [157, 157, 212, 157, 180, 157]; // green, green, cyan, green, amber, green (hue values)
+      const colors = [157, 157, 212, 157, 180, 157, 157, 340, 157]; // mostly green, some cyan/amber/pink
       const hue = colors[Math.floor(Math.random() * colors.length)];
       shines.push({
         x: e.clientX,
         y: e.clientY,
         radius: 0,
-        maxRadius: 80 + Math.random() * 60,
-        opacity: 0.8,
+        maxRadius: 120 + Math.random() * 80,
+        opacity: 1.5,
         hue,
       });
     }
@@ -94,35 +94,47 @@ export default function DoomsdayBackground() {
       for (let i = shines.length - 1; i >= 0; i--) {
         const s = shines[i];
         s.radius += 3;
-        s.opacity -= 0.015;
+        s.opacity -= 0.012;
 
         if (s.opacity <= 0) {
           shines.splice(i, 1);
           continue;
         }
 
-        // Outer glow ring
+        // Outer glow ring — much brighter
         const grad = ctx!.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.radius);
-        grad.addColorStop(0, `hsla(${s.hue}, 100%, 70%, ${s.opacity * 0.4})`);
-        grad.addColorStop(0.4, `hsla(${s.hue}, 100%, 60%, ${s.opacity * 0.2})`);
+        grad.addColorStop(0, `hsla(${s.hue}, 100%, 85%, ${s.opacity * 0.7})`);
+        grad.addColorStop(0.3, `hsla(${s.hue}, 100%, 70%, ${s.opacity * 0.5})`);
+        grad.addColorStop(0.6, `hsla(${s.hue}, 100%, 60%, ${s.opacity * 0.2})`);
         grad.addColorStop(1, `hsla(${s.hue}, 100%, 50%, 0)`);
         ctx!.fillStyle = grad;
         ctx!.beginPath();
         ctx!.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
         ctx!.fill();
 
-        // Bright ring border
-        ctx!.strokeStyle = `hsla(${s.hue}, 100%, 80%, ${s.opacity})`;
-        ctx!.lineWidth = 2;
+        // Bright ring border — thicker + brighter
+        ctx!.strokeStyle = `hsla(${s.hue}, 100%, 90%, ${s.opacity})`;
+        ctx!.lineWidth = 3;
         ctx!.beginPath();
         ctx!.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
         ctx!.stroke();
 
-        // Inner bright dot
-        ctx!.fillStyle = `hsla(${s.hue}, 100%, 90%, ${s.opacity * 0.6})`;
+        // Inner bright flash
+        ctx!.fillStyle = `hsla(${s.hue}, 100%, 95%, ${s.opacity * 0.9})`;
         ctx!.beginPath();
-        ctx!.arc(s.x, s.y, 4, 0, Math.PI * 2);
+        ctx!.arc(s.x, s.y, 8, 0, Math.PI * 2);
         ctx!.fill();
+
+        // Sparkle cross
+        ctx!.strokeStyle = `hsla(${s.hue}, 100%, 100%, ${s.opacity})`;
+        ctx!.lineWidth = 2;
+        const sparkLen = s.radius * 0.3;
+        ctx!.beginPath();
+        ctx!.moveTo(s.x - sparkLen, s.y);
+        ctx!.lineTo(s.x + sparkLen, s.y);
+        ctx!.moveTo(s.x, s.y - sparkLen);
+        ctx!.lineTo(s.x, s.y + sparkLen);
+        ctx!.stroke();
       }
 
       animationId = requestAnimationFrame(draw);
@@ -149,7 +161,7 @@ export default function DoomsdayBackground() {
         height: "100vh",
         zIndex: 9990,
         pointerEvents: "none",
-        opacity: 0.15,
+        opacity: 0.35,
       }}
     />
   );
