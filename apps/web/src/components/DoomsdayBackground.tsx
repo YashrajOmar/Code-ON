@@ -36,7 +36,7 @@ export default function DoomsdayBackground() {
     let accumulated = 0;
     
     for (let i = 0; i < sequence.length; i++) {
-      const duration = i === 8 ? 8000 : 6000;
+        const duration = i === 8 ? 12000 : 8000;
       timers.push(setTimeout(() => setPhase(sequence[i]), accumulated));
       accumulated += duration;
     }
@@ -46,7 +46,7 @@ export default function DoomsdayBackground() {
     const repeatTimer = setInterval(() => {
       let acc = 0;
       for (let i = 0; i < sequence.length; i++) {
-        const duration = i === 8 ? 8000 : 6000;
+      const duration = i === 8 ? 12000 : 8000;
         const idx = i;
         timers.push(setTimeout(() => setPhase(sequence[idx]), acc));
         acc += duration;
@@ -467,7 +467,7 @@ export default function DoomsdayBackground() {
             display: "flex", alignItems: "center", justifyContent: "center",
             pointerEvents: "none",
             background: `radial-gradient(ellipse at center, ${current.glow}, transparent 70%)`,
-            animation: "avenger-fade 2s ease-in-out forwards",
+            animation: "avenger-fade 3s ease-in-out forwards",
           }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -530,10 +530,10 @@ export default function DoomsdayBackground() {
 
       <style>{`
         @keyframes avenger-fade {
-          0% { opacity: 0; }
-          30% { opacity: 1; }
-          70% { opacity: 1; }
-          100% { opacity: 1; }
+          0% { opacity: 0; transform: scale(1.05); }
+          20% { opacity: 1; transform: scale(1); }
+          80% { opacity: 1; transform: scale(1); }
+          100% { opacity: 0.8; transform: scale(0.98); }
         }
       `}</style>
     </>
