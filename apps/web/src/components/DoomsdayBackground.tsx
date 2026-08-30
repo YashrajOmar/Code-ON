@@ -4,8 +4,9 @@ import { useEffect, useRef } from "react";
 import { useTheme } from "@/components/ThemeProvider";
 
 /**
- * DoomsdayBackground — anime/cyberpunk matrix rain effect.
+ * DoomsdayBackground — anime/cyberpunk matrix rain effect + click shine.
  * Renders a canvas with falling neon green characters.
+ * On click/touch, emits a bright expanding light ring at the cursor position.
  * Only renders when theme is "doomsday".
  */
 export default function DoomsdayBackground() {
@@ -27,6 +28,17 @@ export default function DoomsdayBackground() {
     let columns: number = 0;
     let drops: number[] = [];
 
+    // Click shine effects
+    interface Shine {
+      x: number;
+      y: number;
+      radius: number;
+      maxRadius: number;
+      opacity: number;
+      hue: number;
+    }
+    const shines: Shine[] = [];
+
     function resize() {
       canvas!.width = window.innerWidth;
       canvas!.height = window.innerHeight;
@@ -35,6 +47,20 @@ export default function DoomsdayBackground() {
     }
     resize();
     window.addEventListener("resize", resize);
+
+    function onPointer(e: PointerEvent) {
+      const colors = [157, 157, 212, 157, 180, 157]; // green, green, cyan, green, amber, green (hue values)
+      const hue = colors[Math.floor(Math.random() * colors.length)];
+      shines.push({
+        x: e.clientX,
+        y: e.clientY,
+        radius: 0,
+        maxRadius: 80 + Math.random() * 60,
+        opacity: 0.8,
+        hue,
+      });
+    }
+    window.addEventListener("pointerdown", onPointer);
 
     let animationId: number;
 
@@ -45,12 +71,12 @@ export default function DoomsdayBackground() {
 
       ctx!.font = `${fontSize}px JetBrains Mono, monospace`;
 
+      // Draw matrix rain
       for (let i = 0; i < drops.length; i++) {
         const char = chars[Math.floor(Math.random() * chars.length)];
         const x = i * fontSize;
         const y = drops[i] * fontSize;
 
-        // Bright head, fading trail
         if (Math.random() > 0.975) {
           ctx!.fillStyle = "#ffffff";
         } else {
@@ -64,6 +90,41 @@ export default function DoomsdayBackground() {
         drops[i]++;
       }
 
+      // Draw click shines
+      for (let i = shines.length - 1; i >= 0; i--) {
+        const s = shines[i];
+        s.radius += 3;
+        s.opacity -= 0.015;
+
+        if (s.opacity <= 0) {
+          shines.splice(i, 1);
+          continue;
+        }
+
+        // Outer glow ring
+        const grad = ctx!.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.radius);
+        grad.addColorStop(0, `hsla(${s.hue}, 100%, 70%, ${s.opacity * 0.4})`);
+        grad.addColorStop(0.4, `hsla(${s.hue}, 100%, 60%, ${s.opacity * 0.2})`);
+        grad.addColorStop(1, `hsla(${s.hue}, 100%, 50%, 0)`);
+        ctx!.fillStyle = grad;
+        ctx!.beginPath();
+        ctx!.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
+        ctx!.fill();
+
+        // Bright ring border
+        ctx!.strokeStyle = `hsla(${s.hue}, 100%, 80%, ${s.opacity})`;
+        ctx!.lineWidth = 2;
+        ctx!.beginPath();
+        ctx!.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
+        ctx!.stroke();
+
+        // Inner bright dot
+        ctx!.fillStyle = `hsla(${s.hue}, 100%, 90%, ${s.opacity * 0.6})`;
+        ctx!.beginPath();
+        ctx!.arc(s.x, s.y, 4, 0, Math.PI * 2);
+        ctx!.fill();
+      }
+
       animationId = requestAnimationFrame(draw);
     }
     draw();
@@ -71,6 +132,7 @@ export default function DoomsdayBackground() {
     return () => {
       cancelAnimationFrame(animationId);
       window.removeEventListener("resize", resize);
+      window.removeEventListener("pointerdown", onPointer);
     };
   }, [theme]);
 
@@ -87,7 +149,7 @@ export default function DoomsdayBackground() {
         height: "100vh",
         zIndex: 9990,
         pointerEvents: "none",
-        opacity: 0.12,
+        opacity: 0.15,
       }}
     />
   );
