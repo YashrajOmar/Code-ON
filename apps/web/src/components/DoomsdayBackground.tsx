@@ -4,11 +4,19 @@ import { useEffect, useRef, useState } from "react";
 import { useTheme } from "@/components/ThemeProvider";
 
 /**
- * DoomsdayBackground — Animated Avengers + Doomsday background.
+ * DoomsdayBackground — Cycling Avenger faces + Doomsday green screen.
  * 
- * Shows stylized Avenger silhouettes cycling in the background with
- * their iconic colors, then green doomsday energy overlay.
- * Runs continuously, behind content (z-index 0).
+ * Cycle (every 4 seconds, continuous):
+ *   1. Iron Man face (gold glow)
+ *   2. Thor face (blue glow)
+ *   3. Hulk face (green glow)
+ *   4. Captain America face (red glow)
+ *   5. DOOMSDAY — green screen flash + green embers take over
+ *   → back to 1, repeat forever
+ * 
+ * Images are loaded from /avengers/ folder (public/avengers/).
+ * Faces are faded behind content (opacity 0.08), not covering the page.
+ * Green embers + click shockwaves float on top.
  * 
  * Only renders when theme is "doomsday".
  */
@@ -21,7 +29,7 @@ export default function DoomsdayBackground() {
     if (theme !== "doomsday") return;
     setPhase(0);
 
-    // Cycle phases: 0=Iron Man, 1=Thor, 2=Hulk, 3=Cap, 4=Snap(transition to green)
+    // Cycle: 0=Iron Man, 1=Thor, 2=Hulk, 3=Captain, 4=Doomsday(green), then repeat
     const interval = setInterval(() => {
       setPhase(p => (p + 1) % 5);
     }, 4000);
@@ -45,7 +53,6 @@ export default function DoomsdayBackground() {
     resize();
     window.addEventListener("resize", resize);
 
-    // Ember particles (green after snap, themed colors during avenger phases)
     interface Ember {
       x: number; y: number; size: number;
       speedY: number; speedX: number;
@@ -55,7 +62,7 @@ export default function DoomsdayBackground() {
     const embers: Ember[] = [];
     const maxEmbers = 40;
 
-    function spawnEmber(hue: number) {
+    function spawnEmber() {
       embers.push({
         x: Math.random() * canvas!.width,
         y: canvas!.height + Math.random() * 100,
@@ -63,17 +70,16 @@ export default function DoomsdayBackground() {
         speedY: -(0.3 + Math.random() * 1),
         speedX: (Math.random() - 0.5) * 0.3,
         opacity: 0.3 + Math.random() * 0.4,
-        hue,
+        hue: 120, // green
         flicker: Math.random() * Math.PI * 2,
       });
     }
 
     for (let i = 0; i < 20; i++) {
-      spawnEmber(120);
+      spawnEmber();
       embers[i].y = Math.random() * canvas!.height;
     }
 
-    // Click shockwaves
     interface Shockwave {
       x: number; y: number; radius: number; opacity: number; hue: number;
     }
@@ -106,7 +112,7 @@ export default function DoomsdayBackground() {
       ctx!.fillRect(0, 0, canvas!.width, canvas!.height);
       frame++;
 
-      // Arc reactor glow (green)
+      // Arc reactor glow
       const reactorX = 60;
       const reactorY = canvas!.height - 60;
       const pulse = 0.5 + Math.sin(frame * 0.03) * 0.3;
@@ -127,8 +133,7 @@ export default function DoomsdayBackground() {
       ctx!.arc(reactorX, reactorY, 15 + pulse * 4, 0, Math.PI * 2);
       ctx!.stroke();
 
-      // Spawn embers
-      if (embers.length < maxEmbers && frame % 12 === 0) spawnEmber(120);
+      if (embers.length < maxEmbers && frame % 12 === 0) spawnEmber();
 
       for (let i = embers.length - 1; i >= 0; i--) {
         const e = embers[i];
@@ -156,7 +161,6 @@ export default function DoomsdayBackground() {
         if (e.opacity <= 0 || e.y < -20) embers.splice(i, 1);
       }
 
-      // Shockwaves
       for (let i = shockwaves.length - 1; i >= 0; i--) {
         const s = shockwaves[i];
         s.radius += 4;
@@ -207,65 +211,83 @@ export default function DoomsdayBackground() {
       window.removeEventListener("resize", resize);
       window.removeEventListener("pointerdown", onPointer);
     };
-  }, [theme, phase]);
+  }, [theme]);
 
   if (theme !== "doomsday") return null;
 
+  // Phase 0-3: Avenger faces, Phase 4: Doomsday green screen
   const avengers = [
-    { name: "IRON MAN", color: "#ffb800", symbol: "⚙", glow: "rgba(255,184,0,0.15)" },
-    { name: "THOR", color: "#42a5f5", symbol: "⚡", glow: "rgba(66,165,245,0.15)" },
-    { name: "HULK", color: "#2ecc71", symbol: "✊", glow: "rgba(46,204,113,0.15)" },
-    { name: "CAPTAIN", color: "#e63946", symbol: "★", glow: "rgba(230,57,70,0.15)" },
-    { name: "DOOMSDAY", color: "#00ff9d", symbol: "✦", glow: "rgba(0,255,157,0.15)" },
+    { name: "IRON MAN", img: "/avengers/ironman.jpg", glow: "rgba(255,184,0,0.12)", tint: "rgba(255,184,0,0.05)" },
+    { name: "THOR", img: "/avengers/thor.jpg", glow: "rgba(66,165,245,0.12)", tint: "rgba(66,165,245,0.05)" },
+    { name: "HULK", img: "/avengers/hulk.jpg", glow: "rgba(46,204,113,0.12)", tint: "rgba(46,204,113,0.05)" },
+    { name: "CAPTAIN", img: "/avengers/captain.jpg", glow: "rgba(230,57,70,0.12)", tint: "rgba(230,57,70,0.05)" },
   ];
 
-  const current = avengers[phase];
+  const isDoomsday = phase === 4;
+  const current = isDoomsday ? null : avengers[phase];
 
   return (
     <>
-      {/* Avenger silhouette in background — large, faded, behind content */}
-      <div style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 0,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        pointerEvents: "none",
-        background: `radial-gradient(ellipse at center, ${current.glow}, transparent 60%)`,
-        transition: "background 1.5s ease",
-      }}>
+      {/* Avenger face image — faded, behind content, not covering page */}
+      {!isDoomsday && current && (
         <div style={{
-          fontSize: "40vh",
-          color: current.color,
-          opacity: 0.06,
-          textShadow: `0 0 100px ${current.color}`,
-          transition: "opacity 1.5s ease, color 1.5s ease, textShadow 1.5s ease",
-          fontWeight: "bold",
-          lineHeight: 1,
+          position: "fixed",
+          inset: 0,
+          zIndex: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          pointerEvents: "none",
+          background: `radial-gradient(ellipse at center, ${current.glow}, transparent 60%)`,
+          transition: "background 1.5s ease, opacity 1.5s ease",
+          opacity: 1,
         }}>
-          {current.symbol}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={current.img}
+            alt={current.name}
+            style={{
+              maxHeight: "80vh",
+              maxWidth: "80vw",
+              objectFit: "contain",
+              opacity: 0.08,
+              filter: `blur(2px) drop-shadow(0 0 60px ${current.glow})`,
+              transition: "opacity 1.5s ease, filter 1.5s ease",
+            }}
+          />
         </div>
-      </div>
+      )}
 
-      {/* Name watermark at bottom */}
+      {/* Doomsday green flash overlay (phase 4) */}
+      {isDoomsday && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 0,
+          pointerEvents: "none",
+          background: "radial-gradient(ellipse at center, rgba(0,255,157,0.08), transparent 70%)",
+          animation: "doomsday-flash 1.5s ease-out",
+        }} />
+      )}
+
+      {/* Name watermark */}
       <div style={{
         position: "fixed",
         bottom: 20,
         right: 30,
         zIndex: 0,
         pointerEvents: "none",
-        fontSize: 20,
+        fontSize: 18,
         fontWeight: 900,
         letterSpacing: "0.3em",
-        color: current.color,
-        opacity: 0.08,
+        color: isDoomsday ? "#00ff9d" : current?.color ?? "#00ff9d",
+        opacity: 0.1,
         transition: "color 1.5s ease, opacity 1.5s ease",
       }}>
-        {current.name}
+        {isDoomsday ? "DOOMSDAY" : current?.name}
       </div>
 
-      {/* Canvas for embers + shockwaves — above the silhouette but below content */}
+      {/* Canvas for embers + shockwaves */}
       <canvas
         ref={canvasRef}
         style={{
@@ -279,6 +301,14 @@ export default function DoomsdayBackground() {
           opacity: 0.35,
         }}
       />
+
+      <style>{`
+        @keyframes doomsday-flash {
+          0% { opacity: 0; background: rgba(0,255,157,0.15); }
+          30% { opacity: 1; background: rgba(0,255,157,0.2); }
+          100% { opacity: 0.5; background: rgba(0,255,157,0.08); }
+        }
+      `}</style>
     </>
   );
 }
