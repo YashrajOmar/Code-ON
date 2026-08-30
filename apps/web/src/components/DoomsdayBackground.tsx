@@ -29,9 +29,9 @@ export default function DoomsdayBackground() {
     if (theme !== "doomsday") return;
     setPhase(0);
 
-    // Cycle: 0=Iron Man, 1=Thor, 2=Hulk, 3=Captain, 4=Doomsday(green), then repeat
+    // Cycle: 0-7 = Avenger faces, 8 = Doomsday green screen, then repeat
     const interval = setInterval(() => {
-      setPhase(p => (p + 1) % 5);
+      setPhase(p => (p + 1) % 9);
     }, 4000);
 
     return () => clearInterval(interval);
@@ -215,15 +215,19 @@ export default function DoomsdayBackground() {
 
   if (theme !== "doomsday") return null;
 
-  // Phase 0-3: Avenger faces, Phase 4: Doomsday green screen
+  // All Avenger images from the user's folder, cycling continuously
   const avengers = [
-    { name: "IRON MAN", img: "/avengers/ironman.jpg", glow: "rgba(255,184,0,0.12)", tint: "rgba(255,184,0,0.05)" },
-    { name: "THOR", img: "/avengers/thor.jpg", glow: "rgba(66,165,245,0.12)", tint: "rgba(66,165,245,0.05)" },
-    { name: "HULK", img: "/avengers/hulk.jpg", glow: "rgba(46,204,113,0.12)", tint: "rgba(46,204,113,0.05)" },
-    { name: "CAPTAIN", img: "/avengers/captain.jpg", glow: "rgba(230,57,70,0.12)", tint: "rgba(230,57,70,0.05)" },
+    { name: "IRON MAN", img: "/avengers/neon-iron-man.jpg", glow: "rgba(255,184,0,0.12)" },
+    { name: "CAPTAIN AMERICA", img: "/avengers/chris-evans-captain.jpg", glow: "rgba(230,57,70,0.12)" },
+    { name: "HULK", img: "/avengers/hulk-artwork-marvel.jpg", glow: "rgba(46,204,113,0.12)" },
+    { name: "DEADPOOL", img: "/avengers/deadpool-3.jpg", glow: "rgba(230,57,70,0.12)" },
+    { name: "DOCTOR DOOM", img: "/avengers/doctor-doom.jpg", glow: "rgba(0,150,255,0.12)" },
+    { name: "LOKI", img: "/avengers/loki.jpg", glow: "rgba(100,200,100,0.12)" },
+    { name: "SPIDER-MAN", img: "/avengers/miles-morales-spider-man-neon-pink.jpg", glow: "rgba(255,100,200,0.12)" },
+    { name: "AVENGERS", img: "/avengers/marvels-avengers-marvel-superheroes-playstation-4.jpg", glow: "rgba(255,200,0,0.12)" },
   ];
 
-  const isDoomsday = phase === 4;
+  const isDoomsday = phase === avengers.length;
   const current = isDoomsday ? null : avengers[phase];
 
   return (
