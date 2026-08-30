@@ -5,8 +5,7 @@ import { useTheme } from "@/components/ThemeProvider";
 
 /**
  * DoomsdayBackground — anime/cyberpunk matrix rain effect + click shine.
- * Renders a canvas with falling neon green characters.
- * On click/touch, emits a bright expanding light ring at the cursor position.
+ * Characters fall slowly, stay readable, and don't overlap.
  * Only renders when theme is "doomsday".
  */
 export default function DoomsdayBackground() {
@@ -22,72 +21,83 @@ export default function DoomsdayBackground() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    // Matrix characters — mix of katakana, numbers, and code symbols
     const chars = "01<>{}[];()+-*/=&|!?$#@%アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン".split("");
     const fontSize = 28;
-    let columns: number = 0;
-    let drops: number[] = [];
-
-    // Click shine effects
-    interface Shine {
-      x: number;
-      y: number;
-      radius: number;
-      maxRadius: number;
-      opacity: number;
-      hue: number;
-    }
-    const shines: Shine[] = [];
+    let columns = 0;
+    let drops: { y: number; char: string; speed: number }[] = [];
 
     function resize() {
       canvas!.width = window.innerWidth;
       canvas!.height = window.innerHeight;
       columns = Math.floor(canvas!.width / fontSize);
-      drops = Array(columns).fill(1).map(() => Math.random() * -100);
+      drops = Array(columns).fill(0).map(() => ({
+        y: Math.random() * -canvas!.height,
+        char: chars[Math.floor(Math.random() * chars.length)],
+        speed: 0.3 + Math.random() * 0.4,
+      }));
     }
     resize();
     window.addEventListener("resize", resize);
 
+    // Click shine effects
+    interface Shine {
+      x: number; y: number; radius: number; opacity: number; hue: number;
+    }
+    const shines: Shine[] = [];
+
     function onPointer(e: PointerEvent) {
-      const colors = [157, 157, 212, 157, 180, 157, 157, 340, 157]; // mostly green, some cyan/amber/pink
-      const hue = colors[Math.floor(Math.random() * colors.length)];
+      const colors = [157, 157, 212, 157, 180, 157, 340];
       shines.push({
-        x: e.clientX,
-        y: e.clientY,
-        radius: 0,
-        maxRadius: 120 + Math.random() * 80,
-        opacity: 1.5,
-        hue,
+        x: e.clientX, y: e.clientY, radius: 0,
+        opacity: 1.5, hue: colors[Math.floor(Math.random() * colors.length)],
       });
     }
     window.addEventListener("pointerdown", onPointer);
 
     let animationId: number;
+    let frame = 0;
 
     function draw() {
-      // Semi-transparent black to create trail effect
-      ctx!.fillStyle = "rgba(0, 5, 5, 0.05)";
+      // Clear fully each frame — no trails, no overlap
+      ctx!.fillStyle = "rgba(0, 5, 5, 0.15)";
       ctx!.fillRect(0, 0, canvas!.width, canvas!.height);
 
-      ctx!.font = `${fontSize}px JetBrains Mono, monospace`;
+      ctx!.font = `bold ${fontSize}px JetBrains Mono, monospace`;
+      frame++;
 
-      // Draw matrix rain
+      // Only change characters every 20 frames so they're readable
+      if (frame % 20 === 0) {
+        for (let i = 0; i < drops.length; i++) {
+          if (Math.random() > 0.7) {
+            drops[i].char = chars[Math.floor(Math.random() * chars.length)];
+          }
+        }
+      }
+
       for (let i = 0; i < drops.length; i++) {
-        const char = chars[Math.floor(Math.random() * chars.length)];
+        const d = drops[i];
         const x = i * fontSize;
-        const y = drops[i] * fontSize;
+        const y = d.y;
 
-        if (Math.random() > 0.975) {
+        // Bright head + body
+        ctx!.fillStyle = `rgba(0, 255, 157, 0.8)`;
+        ctx!.fillText(d.char, x, y);
+
+        // White sparkle on some
+        if (frame % 30 === 0 && Math.random() > 0.8) {
           ctx!.fillStyle = "#ffffff";
-        } else {
-          ctx!.fillStyle = `rgba(0, 255, 157, ${0.3 + Math.random() * 0.5})`;
+          ctx!.fillText(d.char, x, y);
         }
-        ctx!.fillText(char, x, y);
 
-        if (y > canvas!.height && Math.random() > 0.98) {
-          drops[i] = 0;
+        // Move down slowly
+        d.y += d.speed;
+
+        // Reset when off screen
+        if (y > canvas!.height + fontSize) {
+          d.y = -fontSize;
+          d.char = chars[Math.floor(Math.random() * chars.length)];
+          d.speed = 0.3 + Math.random() * 0.4;
         }
-        drops[i] += 0.08;
       }
 
       // Draw click shines
@@ -101,7 +111,6 @@ export default function DoomsdayBackground() {
           continue;
         }
 
-        // Outer glow ring — much brighter
         const grad = ctx!.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.radius);
         grad.addColorStop(0, `hsla(${s.hue}, 100%, 85%, ${s.opacity * 0.7})`);
         grad.addColorStop(0.3, `hsla(${s.hue}, 100%, 70%, ${s.opacity * 0.5})`);
@@ -112,20 +121,17 @@ export default function DoomsdayBackground() {
         ctx!.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
         ctx!.fill();
 
-        // Bright ring border — thicker + brighter
         ctx!.strokeStyle = `hsla(${s.hue}, 100%, 90%, ${s.opacity})`;
         ctx!.lineWidth = 3;
         ctx!.beginPath();
         ctx!.arc(s.x, s.y, s.radius, 0, Math.PI * 2);
         ctx!.stroke();
 
-        // Inner bright flash
         ctx!.fillStyle = `hsla(${s.hue}, 100%, 95%, ${s.opacity * 0.9})`;
         ctx!.beginPath();
         ctx!.arc(s.x, s.y, 8, 0, Math.PI * 2);
         ctx!.fill();
 
-        // Sparkle cross
         ctx!.strokeStyle = `hsla(${s.hue}, 100%, 100%, ${s.opacity})`;
         ctx!.lineWidth = 2;
         const sparkLen = s.radius * 0.3;
@@ -161,7 +167,7 @@ export default function DoomsdayBackground() {
         height: "100vh",
         zIndex: 9990,
         pointerEvents: "none",
-        opacity: 0.35,
+        opacity: 0.25,
       }}
     />
   );
