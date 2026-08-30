@@ -169,36 +169,36 @@
 }
 
 .theme-doomsday {
-  /* Avengers-inspired: deep space black with Iron Man gold + red */
-  --brand-violet: #ffb800;
-  --brand-violet-light: #ffd966;
-  --brand-violet-dark: #cc9200;
-  --brand-indigo: #e63946;
-  --brand-cyan: #00b4d8;
-  --brand-emerald: #06d6a0;
-  --brand-amber: #ffb800;
-  --brand-rose: #e63946;
+  /* Avengers-inspired: deep space black with Iron Man gold, Captain America blue, Hulk green */
+  --brand-violet: #e8c547;
+  --brand-violet-light: #f5dc7a;
+  --brand-violet-dark: #b8941e;
+  --brand-indigo: #c62828;
+  --brand-cyan: #42a5f5;
+  --brand-emerald: #2ecc71;
+  --brand-amber: #e8c547;
+  --brand-rose: #c62828;
 
-  --surface-0: #0a0a0a;
-  --surface-1: #121212;
-  --surface-2: #1a1a1a;
-  --surface-3: #242424;
-  --surface-4: #2e2e2e;
-  --surface-5: #383838;
+  --surface-0: #080808;
+  --surface-1: #0f0f0f;
+  --surface-2: #161616;
+  --surface-3: #1e1e1e;
+  --surface-4: #282828;
+  --surface-5: #323232;
 
-  --text-primary: #ffd966;
-  --text-secondary: #b0a080;
-  --text-muted: #605540;
-  --text-inverse: #0a0a0a;
+  --text-primary: #f5dc7a;
+  --text-secondary: #c0c0c0;
+  --text-muted: #707070;
+  --text-inverse: #080808;
 
-  --border-subtle: rgba(255,184,0,0.08);
-  --border-default: rgba(255,184,0,0.15);
-  --border-strong: rgba(230,57,70,0.3);
-  --border-violet: rgba(255,184,0,0.4);
+  --border-subtle: rgba(232,197,71,0.10);
+  --border-default: rgba(232,197,71,0.20);
+  --border-strong: rgba(198,40,40,0.4);
+  --border-violet: rgba(232,197,71,0.5);
 
-  --glow-violet: 0 0 40px rgba(255,184,0,0.2);
-  --glow-cyan: 0 0 40px rgba(0,180,216,0.15);
-  --glow-emerald: 0 0 40px rgba(6,214,160,0.15);
+  --glow-violet: 0 0 40px rgba(232,197,71,0.3);
+  --glow-cyan: 0 0 40px rgba(66,165,245,0.2);
+  --glow-emerald: 0 0 40px rgba(46,204,113,0.2);
 }
 
 *, *::before, *::after {
