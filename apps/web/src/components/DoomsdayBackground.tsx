@@ -232,31 +232,32 @@ export default function DoomsdayBackground() {
 
   return (
     <>
-      {/* Avenger face image — faded, behind content, not covering page */}
+      {/* Avenger face image — one at a time, keyed so no overlap */}
       {!isDoomsday && current && (
-        <div style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 0,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          pointerEvents: "none",
-          background: `radial-gradient(ellipse at center, ${current.glow}, transparent 60%)`,
-          transition: "background 1.5s ease, opacity 1.5s ease",
-          opacity: 1,
-        }}>
+        <div
+          key={phase}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            pointerEvents: "none",
+            background: `radial-gradient(ellipse at center, ${current.glow}, transparent 60%)`,
+            animation: "avenger-fade-in 1s ease forwards",
+          }}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={current.img}
             alt={current.name}
             style={{
-              maxHeight: "80vh",
-              maxWidth: "80vw",
+              maxHeight: "70vh",
+              maxWidth: "70vw",
               objectFit: "contain",
               opacity: 0.08,
               filter: `blur(2px) drop-shadow(0 0 60px ${current.glow})`,
-              transition: "opacity 1.5s ease, filter 1.5s ease",
             }}
           />
         </div>
@@ -307,6 +308,10 @@ export default function DoomsdayBackground() {
       />
 
       <style>{`
+        @keyframes avenger-fade-in {
+          0% { opacity: 0; }
+          100% { opacity: 1; }
+        }
         @keyframes doomsday-flash {
           0% { opacity: 0; background: rgba(0,255,157,0.15); }
           30% { opacity: 1; background: rgba(0,255,157,0.2); }
