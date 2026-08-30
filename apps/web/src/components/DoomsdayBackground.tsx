@@ -87,7 +87,7 @@ export default function DoomsdayBackground() {
         if (y > canvas!.height && Math.random() > 0.98) {
           drops[i] = 0;
         }
-        drops[i] += 0.3;
+        drops[i] += 0.08;
       }
 
       // Draw click shines
