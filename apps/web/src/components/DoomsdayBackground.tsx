@@ -420,7 +420,7 @@ export default function DoomsdayBackground() {
               maxHeight: "85vh",
               maxWidth: "85vw",
               objectFit: "contain",
-              opacity: 0.25,
+              opacity: 0.4,
             }}
           />
         </div>
