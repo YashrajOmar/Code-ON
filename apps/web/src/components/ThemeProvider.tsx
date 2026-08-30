@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 
-type Theme = "midnight" | "cyberpunk" | "nordic" | "monokai" | "solarized";
+type Theme = "midnight" | "cyberpunk" | "nordic" | "monokai" | "solarized" | "doomsday";
 
 interface ThemeContextType {
   theme: Theme;

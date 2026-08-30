@@ -168,6 +168,38 @@
   --glow-emerald: 0 0 40px rgba(133,153,0,0.15);
 }
 
+.theme-doomsday {
+  --brand-violet: #ff3333;
+  --brand-violet-light: #ff6666;
+  --brand-violet-dark: #cc0000;
+  --brand-indigo: #990000;
+  --brand-cyan: #ff6600;
+  --brand-emerald: #66ff00;
+  --brand-amber: #ff9900;
+  --brand-rose: #ff0033;
+
+  --surface-0: #0a0000;
+  --surface-1: #1a0505;
+  --surface-2: #250808;
+  --surface-3: #330c0c;
+  --surface-4: #441010;
+  --surface-5: #551515;
+
+  --text-primary: #ff4444;
+  --text-secondary: #aa3333;
+  --text-muted: #661111;
+  --text-inverse: #0a0000;
+
+  --border-subtle: rgba(255,51,51,0.08);
+  --border-default: rgba(255,51,51,0.15);
+  --border-strong: rgba(255,51,51,0.25);
+  --border-violet: rgba(255,51,51,0.4);
+
+  --glow-violet: 0 0 40px rgba(255,51,51,0.3);
+  --glow-cyan: 0 0 40px rgba(255,102,0,0.2);
+  --glow-emerald: 0 0 40px rgba(102,255,0,0.15);
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
