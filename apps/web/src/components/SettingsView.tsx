@@ -218,7 +218,7 @@ export default function SettingsView() {
               { id: "nordic", label: "Nordic Glacier" },
               { id: "monokai", label: "Monokai Pro" },
               { id: "solarized", label: "Solarized Light" },
-              { id: "doomsday", label: "Doomsday" },
+              { id: "doomsday", label: "Codeon Genesis" },
             ].map((th) => {
               const isActive = theme === th.id;
               return (

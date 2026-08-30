@@ -14,6 +14,7 @@ const HintPanel = dynamic(() => import("@/components/HintPanel"), { ssr: false }
 const CompanionNotifier = dynamic(() => import("@/components/CompanionNotifier"), { ssr: false });
 const OnboardingOverlay = dynamic(() => import("@/components/OnboardingOverlay"), { ssr: false });
 const InlineTooltips = dynamic(() => import("@/components/InlineTooltips"), { ssr: false });
+const DoomsdayBackground = dynamic(() => import("@/components/DoomsdayBackground"), { ssr: false });
 
 const FlexLayoutComponent = dynamic(
   () => import("@/components/FlexLayoutWrapper"),
@@ -79,6 +80,7 @@ export default function IDEPage() {
         onGoToSettings={() => setActiveView("settings")}
       />
       <InlineTooltips />
+      <DoomsdayBackground />
     </div>
   );
 }
