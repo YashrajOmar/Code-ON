@@ -253,11 +253,11 @@ export default function DoomsdayBackground() {
             src={current.img}
             alt={current.name}
             style={{
-              maxHeight: "70vh",
-              maxWidth: "70vw",
-              objectFit: "cover",
-              opacity: 0.15,
-              filter: "drop-shadow(0 0 80px rgba(0,255,157,0.1))",
+              maxHeight: "85vh",
+              maxWidth: "85vw",
+              objectFit: "contain",
+              opacity: 0.25,
+              filter: "none",
             }}
           />
         </div>
