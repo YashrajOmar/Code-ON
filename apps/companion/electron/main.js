@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } = require("electron");
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, Notification } = require("electron");
 const path = require("path");
 const { existsSync, mkdirSync, readFileSync, writeFileSync } = require("fs");
 const { homedir } = require("os");
@@ -292,7 +292,28 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl }) => {
         if (platform === "codeforces") {
           const apiText = await page.locator("pre").textContent().catch(() => "{}");
           apiData = JSON.parse(apiText);
-          if (apiData.status !== "OK") throw new Error("API error");
+      if (!apiData || (apiData.status && apiData.status !== "OK") || (Array.isArray(apiData) && apiData.length === 0)) {
+          // Check if it's a login issue — try fetching the profile page
+          const profileUrl = platform === "codeforces" ? `https://codeforces.com/profile/${handle}` : `https://atcoder.jp/users/${handle}`;
+          await page.goto(profileUrl, { waitUntil: "domcontentloaded", timeout: 10000 }).catch(() => {});
+          const pageText = await page.locator("body").textContent().catch(() => "");
+          
+          if (pageText.includes("Log in") || pageText.includes("Sign in") || pageText.includes("Enter") || pageText.includes("login")) {
+            // Login expired
+            new Notification({
+              title: "CodeOn Companion — Login Expired",
+              body: `Your ${p.name} session has expired. Click the Login button to log in again.`,
+              silent: false,
+            }).show();
+
+            mainWindow.webContents.send("status", `LOGIN EXPIRED for ${p.name}. Please click the Login button to re-login.`);
+            results.perPlatform[platform] = { status: "login_expired", count: 0 };
+            results.errors.push(`${p.name}: Login expired. Click Login to re-authenticate.`);
+            continue;
+          }
+          
+          throw new Error("Could not fetch submissions — API returned empty or error");
+        }
           apiData = apiData.result;
         } else if (platform === "atcoder") {
           const apiText = await page.locator("pre").textContent().catch(() => "[]");

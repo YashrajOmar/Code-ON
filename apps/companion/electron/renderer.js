@@ -119,6 +119,14 @@ async function doSync() {
         const name = platform.charAt(0).toUpperCase() + platform.slice(1);
         if (info.count > 0) {
           addStatus(`  ${name}: ${info.count} solutions uploaded`, "success");
+        } else if (info.status === "login_expired") {
+          addStatus(`  ${name}: LOGIN EXPIRED — click Login button to re-login`, "error");
+          // Reset the login button
+          const loginBtn = document.querySelector(`button[data-login="${platform}"]`);
+          if (loginBtn) {
+            loginBtn.classList.remove("logged-in");
+            loginBtn.textContent = "Login";
+          }
         } else if (info.status === "not_supported") {
           addStatus(`  ${name}: auto-scrape not yet supported`, "info");
         } else {
