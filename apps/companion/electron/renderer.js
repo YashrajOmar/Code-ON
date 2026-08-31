@@ -11,19 +11,15 @@ const connText = document.getElementById("connText");
 (async () => {
   const settings = await window.codeon.getSettings();
   codeonUrl.value = settings.codeonUrl || "http://localhost:3000";
-
-  // Fill in saved handles
   if (settings.handles) {
     Object.entries(settings.handles).forEach(([platform, handle]) => {
       const input = document.querySelector(`input[data-platform="${platform}"]`);
       if (input) input.value = handle;
     });
   }
-
   await checkConnection();
 })();
 
-// Status listener
 window.codeon.onStatus((msg) => addStatus(msg, "info"));
 
 function addStatus(msg, type = "") {
@@ -34,7 +30,6 @@ function addStatus(msg, type = "") {
   statusBox.scrollTop = statusBox.scrollHeight;
 }
 
-// Collect all handles
 function getHandles() {
   const handles = {};
   document.querySelectorAll("input[data-platform]").forEach(input => {
@@ -45,7 +40,6 @@ function getHandles() {
   return handles;
 }
 
-// Save settings
 function saveSettings() {
   window.codeon.saveSettings({
     handles: getHandles(),
@@ -53,13 +47,11 @@ function saveSettings() {
   });
 }
 
-// Save on any input change
 document.querySelectorAll("input[data-platform]").forEach(input => {
   input.addEventListener("change", saveSettings);
 });
 codeonUrl.addEventListener("change", () => { saveSettings(); checkConnection(); });
 
-// Connection check
 async function checkConnection() {
   const url = codeonUrl.value.trim() || "http://localhost:3000";
   connText.textContent = "Checking...";
@@ -86,14 +78,11 @@ document.querySelectorAll(".login-btn").forEach(btn => {
   btn.addEventListener("click", async () => {
     const platform = btn.dataset.login;
     const platformName = btn.parentElement.parentElement.querySelector("label").textContent;
-
     btn.textContent = "Opening...";
     btn.disabled = true;
-
     const result = await window.codeon.login({ platform });
     btn.textContent = "Login";
     btn.disabled = false;
-
     if (result.success) {
       btn.classList.add("logged-in");
       btn.textContent = "Logged In";
@@ -104,8 +93,8 @@ document.querySelectorAll(".login-btn").forEach(btn => {
   });
 });
 
-// Sync button
-syncBtn.addEventListener("click", async () => {
+// Sync function — used by both manual click and auto-sync
+async function doSync() {
   if (syncing) return;
   const handles = getHandles();
   if (Object.keys(handles).length === 0) {
@@ -126,14 +115,12 @@ syncBtn.addEventListener("click", async () => {
 
     if (result.status === "done") {
       addStatus(`Sync complete! Uploaded ${result.total} solution(s) total.`, "success");
-
-      // Per-platform results
       Object.entries(result.perPlatform || {}).forEach(([platform, info]) => {
         const name = platform.charAt(0).toUpperCase() + platform.slice(1);
         if (info.count > 0) {
           addStatus(`  ${name}: ${info.count} solutions uploaded`, "success");
         } else if (info.status === "not_supported") {
-          addStatus(`  ${name}: auto-scrape not yet supported for this platform`, "info");
+          addStatus(`  ${name}: auto-scrape not yet supported`, "info");
         } else {
           addStatus(`  ${name}: no new submissions`, "info");
         }
@@ -151,5 +138,16 @@ syncBtn.addEventListener("click", async () => {
     syncing = false;
     syncBtn.disabled = false;
     syncBtnText.textContent = "Sync Now";
+  }
+}
+
+// Manual sync
+syncBtn.addEventListener("click", () => doSync());
+
+// Auto-sync from tray timer
+window.codeon.onAutoSync(() => {
+  if (!syncing) {
+    addStatus("Auto-sync started...", "info");
+    doSync();
   }
 });

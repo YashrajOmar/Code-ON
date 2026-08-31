@@ -7,4 +7,5 @@ contextBridge.exposeInMainWorld("codeon", {
   sync: (opts) => ipcRenderer.invoke("sync", opts),
   checkConnection: (opts) => ipcRenderer.invoke("checkConnection", opts),
   onStatus: (cb) => ipcRenderer.on("status", (_, msg) => cb(msg)),
+  onAutoSync: (cb) => ipcRenderer.on("auto-sync", () => cb()),
 });

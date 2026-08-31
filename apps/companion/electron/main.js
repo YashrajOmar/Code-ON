@@ -1,9 +1,12 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } = require("electron");
 const path = require("path");
 const { existsSync, mkdirSync, readFileSync, writeFileSync } = require("fs");
 const { homedir } = require("os");
 
 let mainWindow;
+let tray = null;
+let autoSyncTimer = null;
+const SYNC_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -20,10 +23,64 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, "index.html"));
   mainWindow.setMenuBarVisibility(false);
+
+  // Minimize to tray instead of quitting
+  mainWindow.on("close", (e) => {
+    if (!app.isQuitting) {
+      e.preventDefault();
+      mainWindow.hide();
+    }
+  });
 }
 
-app.whenReady().then(createWindow);
-app.on("window-all-closed", () => app.quit());
+// System tray
+function createTray() {
+  const icon = nativeImage.createEmpty();
+  tray = new Tray(icon);
+  tray.setToolTip("CodeOn Companion");
+
+  const contextMenu = Menu.buildFromTemplate([
+    { label: "Open", click: () => mainWindow.show() },
+    { label: "Sync Now", click: () => mainWindow.webContents.send("auto-sync") },
+    { type: "separator" },
+    { label: "Quit", click: () => { app.isQuitting = true; app.quit(); } },
+  ]);
+  tray.setContextMenu(contextMenu);
+
+  tray.on("click", () => mainWindow.show());
+}
+
+app.whenReady().then(() => {
+  createWindow();
+  createTray();
+
+  // Start auto-sync timer
+  startAutoSync();
+});
+
+app.on("window-all-closed", (e) => {
+  // Don't quit — stay in tray
+});
+
+let isQuitting = false;
+app.on("before-quit", () => { isQuitting = true; });
+app.isQuitting = false;
+
+function startAutoSync() {
+  if (autoSyncTimer) clearInterval(autoSyncTimer);
+  autoSyncTimer = setInterval(() => {
+    mainWindow.webContents.send("auto-sync");
+  }, SYNC_INTERVAL);
+
+  // Also sync 10 seconds after startup if handles are saved
+  setTimeout(async () => {
+    const settings = loadSettings();
+    const hasHandles = settings.handles && Object.values(settings.handles).some(h => h && h.trim());
+    if (hasHandles) {
+      mainWindow.webContents.send("auto-sync");
+    }
+  }, 10000);
+}
 
 // ── Storage ────────────────────────────────────────────────────────────────
 const SETTINGS_FILE = path.join(homedir(), ".codeon", "companion-settings.json");
@@ -236,9 +293,10 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl }) => {
         }
 
         const lastSync = state[`${platform}LastSync`] || 0;
+        const isFirstSync = lastSync === 0;
         const newSubs = apiData
           .filter(s => p.isAc(s) && p.isCpp(s) && p.timestamp(s) > lastSync)
-          .slice(0, 10);
+          .slice(0, isFirstSync ? 100 : 15);
 
         mainWindow.webContents.send("status", `Found ${newSubs.length} new ${p.name} submissions.`);
 
