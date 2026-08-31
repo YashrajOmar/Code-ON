@@ -163,111 +163,148 @@ const PLATFORMS = {
       const solutions = [];
       const seen = new Set();
 
-      // Go to LeetCode main page first (SPA needs to load)
       sendStatus(`[LeetCode] Loading LeetCode for ${handle}...`);
-      await page.goto(`https://leetcode.com/`, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
-      await page.waitForTimeout(3000);
+      await page.goto(`https://leetcode.com/`, { waitUntil: "networkidle", timeout: 20000 }).catch(() => {});
+      await page.waitForTimeout(2000);
 
-      // Navigate to user's submissions via profile
-      sendStatus(`[LeetCode] Navigating to submissions...`);
-      await page.goto(`https://leetcode.com/u/${handle}/`, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
-      await page.waitForTimeout(3000);
+      // Use LeetCode GraphQL API to get recent submissions (works when logged in)
+      sendStatus(`[LeetCode] Fetching submissions via API...`);
 
-      // Try to find submissions link on profile page
-      const submissionsUrl = await page.evaluate(() => {
-        const links = Array.from(document.querySelectorAll('a'));
-        for (const link of links) {
-          const href = link.getAttribute('href') || '';
-          const text = (link.textContent || '').toLowerCase();
-          if (text.includes('submission') || href.includes('/submissions/')) {
-            return link.href;
+      const graphqlData = await page.evaluate(async (username) => {
+        const query = `
+          query recentSubmissions($username: String!, $limit: Int) {
+            recentSubmissionList(username: $username, limit: $limit) {
+              title
+              titleSlug
+              timestamp
+              lang
+              statusDisplay
+            }
           }
+        `;
+        try {
+          const res = await fetch("https://leetcode.com/graphql", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query, variables: { username, limit: 50 } }),
+          });
+          const data = await res.json();
+          return data?.data?.recentSubmissionList || [];
+        } catch (e) {
+          return [];
         }
-        return null;
-      }).catch(() => null);
+      }, handle).catch(() => []);
 
-      if (submissionsUrl) {
-        sendStatus(`[LeetCode] Found submissions link, navigating...`);
-        await page.goto(submissionsUrl, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
-        await page.waitForTimeout(3000);
-      } else {
-        // Direct attempt
-        await page.goto(`https://leetcode.com/submissions/`, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
-        await page.waitForTimeout(5000);
-      }
+      // Filter: only AC + C/C++ submissions
+      const acSubs = graphqlData.filter((s) =>
+        s.statusDisplay === "Accepted" &&
+        (s.lang === "cpp" || s.lang === "c" || s.lang === "c++")
+      );
 
-      // Check if we got redirected to login
-      const currentUrl = page.url();
-      if (currentUrl.includes('login') || currentUrl.includes('accounts')) {
-        sendStatus(`[LeetCode] LOGIN EXPIRED — please click Login to re-login.`);
+      // Also include Python and Java
+      const allAcSubs = graphqlData.filter((s) =>
+        s.statusDisplay === "Accepted" &&
+        (s.lang === "cpp" || s.lang === "c" || s.lang === "c++" ||
+         s.lang === "python3" || s.lang === "python" || s.lang === "java")
+      );
+
+      sendStatus(`[LeetCode] Found ${allAcSubs.length} AC submissions via API.`);
+
+      if (allAcSubs.length === 0) {
+        // Check if login expired
+        const currentUrl = page.url();
+        if (currentUrl.includes("login") || currentUrl.includes("accounts")) {
+          sendStatus(`[LeetCode] LOGIN EXPIRED — please click Login to re-login.`);
+          return [];
+        }
+        sendStatus(`[LeetCode] No AC submissions found. Try logging in again.`);
         return [];
       }
 
-      // Try to get submission links from the page
-      let submissionLinks = await page.evaluate(() => {
-        const results = [];
-        // Try multiple selectors
-        const selectors = [
-          'a[href*="/submissions/detail/"]',
-          'a[href*="/submission/"]',
-          'a[href*="submissions/detail"]',
-        ];
-        for (const sel of selectors) {
-          const links = document.querySelectorAll(sel);
-          links.forEach(link => {
-            const href = link.getAttribute('href') || '';
-            const match = href.match(/\/(?:submissions\/detail|submission)\/(\d+)/);
-            if (match) {
-              results.push({
-                id: match[1],
-                title: link.textContent?.trim() || 'Unknown',
-                url: link.href.startsWith('http') ? link.href : `https://leetcode.com${link.getAttribute('href')}`,
-              });
-            }
-          });
-          if (results.length > 0) break;
-        }
-
-        // Also try all links on the page
-        if (results.length === 0) {
-          const allLinks = Array.from(document.querySelectorAll('a'));
-          for (const link of allLinks) {
-            const href = link.getAttribute('href') || '';
-            if (href.includes('/submissions/detail/') || href.includes('/submission/')) {
-              const match = href.match(/\/(?:submissions\/detail|submission)\/(\d+)/);
-              if (match) {
-                results.push({
-                  id: match[1],
-                  title: link.textContent?.trim() || 'Unknown',
-                  url: link.href.startsWith('http') ? link.href : `https://leetcode.com${link.getAttribute('href')}`,
-                });
-              }
-            }
-          }
-        }
-
-        return results;
-      }).catch(() => []);
-
-      // Deduplicate
-      submissionLinks = submissionLinks.filter(s => {
-        if (seen.has(s.id)) return false;
-        seen.add(s.id);
-        return true;
-      });
-
-      sendStatus(`[LeetCode] Found ${submissionLinks.length} submission links.`);
-
-      // Limit to target count
-      const limit = Math.min(submissionLinks.length, targetCount);
+      // For each AC submission, visit the problem's submissions page
+      // to find the actual submission with code
+      const limit = Math.min(allAcSubs.length, targetCount);
 
       for (let i = 0; i < limit; i++) {
-        const sub = submissionLinks[i];
-        sendStatus(`[LeetCode] Scraping ${i + 1}/${limit}: ${sub.title}`);
+        const sub = allAcSubs[i];
+        const slug = sub.titleSlug;
+        const title = sub.title;
+        const ts = parseInt(sub.timestamp);
+
+        // Skip if already synced
+        if (ts <= lastSync) {
+          sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (already synced)`);
+          continue;
+        }
+
+        sendStatus(`[LeetCode] Scraping ${i + 1}/${limit}: ${title}`);
 
         try {
-          await page.goto(sub.url, { waitUntil: "domcontentloaded", timeout: 15000 });
-          await page.waitForTimeout(2000);
+          // Visit the problem's submissions page
+          const subPageUrl = `https://leetcode.com/problems/${slug}/submissions/`;
+          await page.goto(subPageUrl, { waitUntil: "networkidle", timeout: 20000 }).catch(() => {});
+          await page.waitForTimeout(3000);
+
+          // Find the most recent AC submission link on this page
+          const submissionUrl = await page.evaluate(() => {
+            // Look for submission rows/cells that link to submission detail
+            const allLinks = Array.from(document.querySelectorAll('a'));
+            for (const link of allLinks) {
+              const href = link.getAttribute('href') || '';
+              const text = (link.textContent || '').toLowerCase();
+              // Look for links to submission detail pages
+              if (href.match(/\/submissions\/\d+/) || href.match(/\/submission\/\d+/)) {
+                return href.startsWith('http') ? href : `https://leetcode.com${href}`;
+              }
+            }
+            // Also try buttons or clickable rows
+            const rows = document.querySelectorAll('tr, [class*="submission"]');
+            for (const row of rows) {
+              const link = row.querySelector('a[href*="submission"]');
+              if (link) {
+                const href = link.getAttribute('href') || '';
+                return href.startsWith('http') ? href : `https://leetcode.com${href}`;
+              }
+            }
+            return null;
+          }).catch(() => null);
+
+          if (!submissionUrl) {
+            // Try direct submission detail format — LeetCode uses timestamp-based URLs
+            // Visit the problem page itself and look for "Submissions" tab
+            await page.goto(`https://leetcode.com/problems/${slug}/`, { waitUntil: "networkidle", timeout: 20000 }).catch(() => {});
+            await page.waitForTimeout(3000);
+
+            // Try clicking the submissions tab
+            const submissionsTab = await page.locator('a[href*="submissions"], button:has-text("Submissions")').first().click({ timeout: 5000 }).catch(() => null);
+
+            if (submissionsTab) {
+              await page.waitForTimeout(3000);
+            }
+
+            // Try again to find submission links
+            const altUrl = await page.evaluate(() => {
+              const allLinks = Array.from(document.querySelectorAll('a'));
+              for (const link of allLinks) {
+                const href = link.getAttribute('href') || '';
+                if (href.match(/\/submissions\/\d+/) || href.match(/\/submission\/\d+/)) {
+                  return href.startsWith('http') ? href : `https://leetcode.com${href}`;
+                }
+              }
+              return null;
+            }).catch(() => null);
+
+            if (!altUrl) {
+              sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (no submission link found)`);
+              continue;
+            }
+          }
+
+          const finalUrl = submissionUrl || `https://leetcode.com/problems/${slug}/submissions/`;
+
+          // Visit the submission detail page to get code
+          await page.goto(finalUrl, { waitUntil: "networkidle", timeout: 20000 }).catch(() => {});
+          await page.waitForTimeout(3000);
 
           // Try multiple selectors for code
           let code = await page.locator("pre code, .code-container pre, [class*='code'] pre, pre").first().textContent({ timeout: 5000 }).catch(() => null);
@@ -277,16 +314,39 @@ const PLATFORMS = {
             code = await page.locator(".ace_content, .monaco-editor .view-line").first().textContent({ timeout: 5000 }).catch(() => null);
           }
 
+          if (!code || code.trim().length < 20) {
+            // Try getting code from page evaluate
+            code = await page.evaluate(() => {
+              // Monaco editor
+              const monaco = document.querySelector('.monaco-editor');
+              if (monaco) {
+                const lines = monaco.querySelectorAll('.view-line');
+                if (lines.length > 0) {
+                  return Array.from(lines).map(l => l.textContent || '').join('\n');
+                }
+              }
+              // ACE editor
+              const ace = document.querySelector('.ace_content, .ace_editor');
+              if (ace) {
+                return ace.textContent || '';
+              }
+              // Any pre/code
+              const pre = document.querySelector('pre');
+              if (pre) return pre.textContent || '';
+              return null;
+            }).catch(() => null);
+          }
+
           if (code && code.trim().length > 20) {
             solutions.push({
               code: code.trim(),
-              problemTitle: sub.title,
+              problemTitle: title,
               platform: "leetcode",
               tags: [],
             });
-            sendStatus(`[LeetCode] Scraped ${i + 1}/${limit} ✓`);
+            sendStatus(`[LeetCode] Scraped ${i + 1}/${limit}: ${title} ✓`);
           } else {
-            sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (no code)`);
+            sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (no code found)`);
           }
 
           await page.waitForTimeout(1500);
