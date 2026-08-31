@@ -429,7 +429,10 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl }) => {
           results.perPlatform[platform] = { status: "done", count: 0 };
         }
 
-        state[`${platform}LastSync`] = Math.floor(Date.now() / 1000);
+        // Only update timestamp if we actually found and uploaded solutions
+        if (solutions.length > 0) {
+          state[`${platform}LastSync`] = Math.floor(Date.now() / 1000);
+        }
       } catch (e) {
         results.errors.push(`${p.name}: ${e.message}`);
         results.perPlatform[platform] = { status: "error", count: 0 };
