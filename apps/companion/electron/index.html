@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CodeOn Companion</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: #0a0a0f; color: #f0f0ff;
+      padding: 24px; height: 100vh; overflow: hidden;
+    }
+    .logo { width: 48px; height: 48px; border-radius: 14px;
+      background: linear-gradient(135deg, #7c3aed, #4f46e5);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px; font-weight: 800; color: white; margin: 0 auto 12px;
+      box-shadow: 0 8px 24px rgba(124,58,237,0.4); }
+    h1 { font-size: 20px; font-weight: 700; text-align: center; margin-bottom: 4px; }
+    .subtitle { font-size: 12px; color: #606080; text-align: center; margin-bottom: 24px; }
+    .section { margin-bottom: 20px; }
+    .section-title { font-size: 11px; font-weight: 600; color: #606080;
+      text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+    .input-row { display: flex; gap: 8px; margin-bottom: 10px; }
+    input { flex: 1; padding: 10px 14px; border-radius: 8px;
+      background: #16161f; border: 1px solid rgba(255,255,255,0.1); color: #f0f0ff;
+      font-size: 13px; outline: none; font-family: inherit; }
+    input:focus { border-color: #7c3aed; }
+    input::placeholder { color: #404060; }
+    .btn { padding: 10px 18px; border-radius: 8px; border: none; cursor: pointer;
+      font-size: 13px; font-weight: 600; font-family: inherit; transition: all 0.15s; }
+    .btn-primary { background: linear-gradient(135deg, #7c3aed, #4f46e5); color: white; }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-secondary { background: #16161f; color: #a0a0c0; border: 1px solid rgba(255,255,255,0.1); }
+    .btn-secondary:hover { background: #1e1e2a; }
+    .btn-full { width: 100%; padding: 12px; font-size: 14px; margin-top: 4px; }
+    .status-box { background: #0d0d14; border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 10px; padding: 14px; min-height: 80px; max-height: 200px;
+      overflow-y: auto; margin-bottom: 16px; }
+    .status-line { font-size: 12px; color: #8080a0; margin-bottom: 4px; line-height: 1.6; }
+    .status-line.success { color: #10b981; }
+    .status-line.error { color: #f43f5e; }
+    .status-line.info { color: #06b6d4; }
+    .connection-status { display: flex; align-items: center; gap: 6px; font-size: 11px; margin-bottom: 16px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .dot.connected { background: #10b981; box-shadow: 0 0 8px #10b981; }
+    .dot.disconnected { background: #f43f5e; }
+    .footer { position: fixed; bottom: 16px; left: 24px; right: 24px;
+      font-size: 10px; color: #404060; text-align: center; }
+    .spinner { display: inline-block; width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.1); border-top-color: #7c3aed;
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+      vertical-align: middle; margin-right: 6px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .label { font-size: 11px; color: #606080; margin-bottom: 4px; }
+    .train-info { background: rgba(124,58,237,0.08); border: 1px solid rgba(124,58,237,0.2);
+      border-radius: 8px; padding: 10px 14px; font-size: 11px; color: #a78bfa;
+      margin-bottom: 16px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="logo">C</div>
+  <h1>CodeOn Companion</h1>
+  <p class="subtitle">Sync your submissions to train your AI mentor</p>
+
+  <div class="connection-status">
+    <span class="dot disconnected" id="connDot"></span>
+    <span id="connText">Checking CodeOn connection...</span>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Codeforces Handle</div>
+    <div class="input-row">
+      <input type="text" id="cfHandle" placeholder="e.g. Korosuke_12" />
+      <button class="btn btn-secondary" id="cfLoginBtn">Login</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">LeetCode Handle (optional)</div>
+    <div class="input-row">
+      <input type="text" id="lcHandle" placeholder="e.g. YRJ47" />
+      <button class="btn btn-secondary" id="lcLoginBtn">Login</button>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">CodeOn Server URL</div>
+    <input type="text" id="codeonUrl" placeholder="http://localhost:3000" />
+  </div>
+
+  <div class="train-info">
+    Click <strong>Login</strong> first to log into Codeforces in Chrome. Then click <strong>Sync Now</strong> to scrape your submissions and train your AI mentor.
+  </div>
+
+  <button class="btn btn-primary btn-full" id="syncBtn" disabled>
+    <span id="syncBtnText">Sync Now</span>
+  </button>
+
+  <div class="status-box" id="statusBox">
+    <div class="status-line">Ready. Login to Codeforces first, then sync.</div>
+  </div>
+
+  <div class="footer">CodeOn Companion v0.1.0 · Your login is stored locally</div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
