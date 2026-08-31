@@ -215,16 +215,26 @@ ipcMain.handle("save-settings", (_, settings) => saveSettings(settings));
 let browserContext = null;
 
 async function getBrowser() {
-  if (!browserContext || !browserContext.browser() || !browserContext.pages) {
+  if (browserContext) {
     try {
-      if (browserContext) await browserContext.close().catch(() => {});
-    } catch {}
-    browserContext = null;
+      // Check if context is still alive
+      await browserContext.pages();
+    } catch {
+      browserContext = null;
+    }
   }
   
   if (!browserContext) {
     const { chromium } = require("playwright");
     if (!existsSync(PROFILE_DIR)) mkdirSync(PROFILE_DIR, { recursive: true });
+    
+    // Clear any leftover Chrome lock files
+    const lockFiles = ["SingletonLock", "SingletonCookie", "SingletonSocket", "Default/LOCK"];
+    for (const lock of lockFiles) {
+      const lockPath = path.join(PROFILE_DIR, lock);
+      try { if (existsSync(lockPath)) require("fs").unlinkSync(lockPath); } catch {}
+    }
+    
     browserContext = await chromium.launchPersistentContext(PROFILE_DIR, {
       headless: false,
       channel: "chrome",
@@ -233,7 +243,6 @@ async function getBrowser() {
       ignoreDefaultArgs: ["--enable-automation"],
     });
 
-    // If user closes the browser, mark as closed so next call reopens
     browserContext.on("close", () => {
       browserContext = null;
     });
