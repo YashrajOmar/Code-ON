@@ -286,49 +286,82 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl }) => {
       mainWindow.webContents.send("status", `Fetching ${p.name} submissions for ${handle}...`);
 
       try {
-        await page.goto(p.apiSubmissions(handle), { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
-
-        let apiData;
-        if (platform === "codeforces") {
-          const apiText = await page.locator("pre").textContent().catch(() => "{}");
-          apiData = JSON.parse(apiText);
-      if (!apiData || (apiData.status && apiData.status !== "OK") || (Array.isArray(apiData) && apiData.length === 0)) {
-          // Check if it's a login issue — try fetching the profile page
-          const profileUrl = platform === "codeforces" ? `https://codeforces.com/profile/${handle}` : `https://atcoder.jp/users/${handle}`;
-          await page.goto(profileUrl, { waitUntil: "domcontentloaded", timeout: 10000 }).catch(() => {});
-          const pageText = await page.locator("body").textContent().catch(() => "");
-          
-          if (pageText.includes("Log in") || pageText.includes("Sign in") || pageText.includes("Enter") || pageText.includes("login")) {
-            // Login expired
-            new Notification({
-              title: "CodeOn Companion — Login Expired",
-              body: `Your ${p.name} session has expired. Click the Login button to log in again.`,
-              silent: false,
-            }).show();
-
-            mainWindow.webContents.send("status", `LOGIN EXPIRED for ${p.name}. Please click the Login button to re-login.`);
-            results.perPlatform[platform] = { status: "login_expired", count: 0 };
-            results.errors.push(`${p.name}: Login expired. Click Login to re-authenticate.`);
-            continue;
-          }
-          
-          throw new Error("Could not fetch submissions — API returned empty or error");
-        }
-          apiData = apiData.result;
-        } else if (platform === "atcoder") {
-          const apiText = await page.locator("pre").textContent().catch(() => "[]");
-          apiData = JSON.parse(apiText);
-        } else {
-          throw new Error("Not implemented");
-        }
-
         const lastSync = state[`${platform}LastSync`] || 0;
         const isFirstSync = lastSync === 0;
-        const newSubs = apiData
-          .filter(s => p.isAc(s) && p.isCpp(s) && p.timestamp(s) > lastSync)
-          .slice(0, isFirstSync ? 500 : 15);
+        const targetCount = isFirstSync ? 500 : 15;
+        const allAcSubs = [];
+        let from = 1;
+        const pageSize = 1000;
+        let hasMore = true;
+        let pagesFetched = 0;
 
-        mainWindow.webContents.send("status", `Found ${newSubs.length} new ${p.name} submissions.`);
+        // Keep fetching pages until we have enough AC solutions or run out
+        while (allAcSubs.length < targetCount && hasMore && pagesFetched < 10) {
+          mainWindow.webContents.send("status", `Fetching ${p.name} page ${pagesFetched + 1}... (found ${allAcSubs.length} AC so far)`);
+
+          if (platform === "codeforces") {
+            const apiUrl = `https://codeforces.com/api/user.status?handle=${handle}&from=${from}&count=${pageSize}`;
+            await page.goto(apiUrl, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+            const apiText = await page.locator("pre").textContent().catch(() => "{}");
+            let apiData;
+            try { apiData = JSON.parse(apiText); } catch { hasMore = false; break; }
+
+            if (!apiData || apiData.status !== "OK") {
+              // Check login
+              const profileUrl = `https://codeforces.com/profile/${handle}`;
+              await page.goto(profileUrl, { waitUntil: "domcontentloaded", timeout: 10000 }).catch(() => {});
+              const pageText = await page.locator("body").textContent().catch(() => "");
+              if (pageText.includes("Log in") || pageText.includes("Sign in")) {
+                new Notification({
+                  title: "CodeOn Companion — Login Expired",
+                  body: `Your ${p.name} session has expired. Click the Login button to log in again.`,
+                  silent: false,
+                }).show();
+                mainWindow.webContents.send("status", `LOGIN EXPIRED for ${p.name}. Please click the Login button to re-login.`);
+                results.perPlatform[platform] = { status: "login_expired", count: 0 };
+                results.errors.push(`${p.name}: Login expired. Click Login to re-authenticate.`);
+                hasMore = false;
+                break;
+              }
+              hasMore = false;
+              break;
+            }
+
+            const pageSubs = apiData.result;
+            if (!pageSubs || pageSubs.length === 0) { hasMore = false; break; }
+
+            // Filter AC + C++ + newer than last sync
+            const acSubs = pageSubs.filter(s => p.isAc(s) && p.isCpp(s) && p.timestamp(s) > lastSync);
+            allAcSubs.push(...acSubs);
+
+            // Check if oldest submission in this page is older than lastSync — if so, stop
+            const oldest = pageSubs[pageSubs.length - 1];
+            if (oldest && p.timestamp(oldest) <= lastSync) {
+              hasMore = false;
+            }
+
+            from += pageSize;
+          } else if (platform === "atcoder") {
+            await page.goto(p.apiSubmissions(handle), { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+            const apiText = await page.locator("pre").textContent().catch(() => "[]");
+            let apiData;
+            try { apiData = JSON.parse(apiText); } catch { hasMore = false; break; }
+            if (!apiData || apiData.length === 0) { hasMore = false; break; }
+            const acSubs = apiData.filter(s => p.isAc(s) && p.isCpp(s) && p.timestamp(s) > lastSync);
+            allAcSubs.push(...acSubs);
+            hasMore = false; // AtCoder doesn't support pagination
+          } else {
+            hasMore = false;
+            break;
+          }
+
+          pagesFetched++;
+          // Rate limit between pages
+          await new Promise(r => setTimeout(r, 1000));
+        }
+
+        const newSubs = allAcSubs.slice(0, targetCount);
+        mainWindow.webContents.send("status", `Found ${newSubs.length} AC ${p.name} submissions across ${pagesFetched} page(s).`);
 
         const solutions = [];
         for (const sub of newSubs) {
