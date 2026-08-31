@@ -9,11 +9,14 @@ let autoSyncTimer = null;
 const SYNC_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
 
 function createWindow() {
+  const shouldHide = process.argv.includes("--hidden");
+
   mainWindow = new BrowserWindow({
     width: 560,
     height: 780,
     resizable: false,
     title: "CodeOn Companion",
+    show: !shouldHide,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -56,6 +59,12 @@ app.whenReady().then(() => {
 
   // Start auto-sync timer
   startAutoSync();
+
+  // Auto-launch on Windows startup
+  app.setLoginItemSettings({
+    openAtLogin: true,
+    args: ["--hidden"],
+  });
 });
 
 app.on("window-all-closed", (e) => {
