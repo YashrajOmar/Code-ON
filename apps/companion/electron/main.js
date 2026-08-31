@@ -163,51 +163,91 @@ const PLATFORMS = {
       const solutions = [];
       const seen = new Set();
 
-      // Go to user's submissions page (requires login)
-      sendStatus(`[LeetCode] Loading submissions page for ${handle}...`);
-      await page.goto(`https://leetcode.com/submissions/`, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+      // Go to LeetCode main page first (SPA needs to load)
+      sendStatus(`[LeetCode] Loading LeetCode for ${handle}...`);
+      await page.goto(`https://leetcode.com/`, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
       await page.waitForTimeout(3000);
+
+      // Navigate to user's submissions via profile
+      sendStatus(`[LeetCode] Navigating to submissions...`);
+      await page.goto(`https://leetcode.com/u/${handle}/`, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(3000);
+
+      // Try to find submissions link on profile page
+      const submissionsUrl = await page.evaluate(() => {
+        const links = Array.from(document.querySelectorAll('a'));
+        for (const link of links) {
+          const href = link.getAttribute('href') || '';
+          const text = (link.textContent || '').toLowerCase();
+          if (text.includes('submission') || href.includes('/submissions/')) {
+            return link.href;
+          }
+        }
+        return null;
+      }).catch(() => null);
+
+      if (submissionsUrl) {
+        sendStatus(`[LeetCode] Found submissions link, navigating...`);
+        await page.goto(submissionsUrl, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+        await page.waitForTimeout(3000);
+      } else {
+        // Direct attempt
+        await page.goto(`https://leetcode.com/submissions/`, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+        await page.waitForTimeout(5000);
+      }
+
+      // Check if we got redirected to login
+      const currentUrl = page.url();
+      if (currentUrl.includes('login') || currentUrl.includes('accounts')) {
+        sendStatus(`[LeetCode] LOGIN EXPIRED — please click Login to re-login.`);
+        return [];
+      }
 
       // Try to get submission links from the page
       let submissionLinks = await page.evaluate(() => {
-        const links = document.querySelectorAll('a[href*="/submissions/detail/"]');
         const results = [];
-        links.forEach(link => {
-          const href = link.getAttribute('href') || '';
-          const match = href.match(/\/submissions\/detail\/(\d+)/);
-          if (match) {
-            results.push({
-              id: match[1],
-              title: link.textContent?.trim() || 'Unknown',
-              url: link.href,
-            });
-          }
-        });
-        return results;
-      }).catch(() => []);
+        // Try multiple selectors
+        const selectors = [
+          'a[href*="/submissions/detail/"]',
+          'a[href*="/submission/"]',
+          'a[href*="submissions/detail"]',
+        ];
+        for (const sel of selectors) {
+          const links = document.querySelectorAll(sel);
+          links.forEach(link => {
+            const href = link.getAttribute('href') || '';
+            const match = href.match(/\/(?:submissions\/detail|submission)\/(\d+)/);
+            if (match) {
+              results.push({
+                id: match[1],
+                title: link.textContent?.trim() || 'Unknown',
+                url: link.href.startsWith('http') ? link.href : `https://leetcode.com${link.getAttribute('href')}`,
+              });
+            }
+          });
+          if (results.length > 0) break;
+        }
 
-      // Also try the submissions table rows
-      if (submissionLinks.length === 0) {
-        // Try alternate selectors
-        submissionLinks = await page.evaluate(() => {
+        // Also try all links on the page
+        if (results.length === 0) {
           const allLinks = Array.from(document.querySelectorAll('a'));
-          const results = [];
           for (const link of allLinks) {
             const href = link.getAttribute('href') || '';
-            if (href.includes('/submissions/detail/')) {
-              const match = href.match(/\/submissions\/detail\/(\d+)/);
+            if (href.includes('/submissions/detail/') || href.includes('/submission/')) {
+              const match = href.match(/\/(?:submissions\/detail|submission)\/(\d+)/);
               if (match) {
                 results.push({
                   id: match[1],
                   title: link.textContent?.trim() || 'Unknown',
-                  url: link.href,
+                  url: link.href.startsWith('http') ? link.href : `https://leetcode.com${link.getAttribute('href')}`,
                 });
               }
             }
           }
-          return results;
-        }).catch(() => []);
-      }
+        }
+
+        return results;
+      }).catch(() => []);
 
       // Deduplicate
       submissionLinks = submissionLinks.filter(s => {
