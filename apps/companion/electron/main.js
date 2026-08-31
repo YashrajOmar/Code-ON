@@ -378,11 +378,17 @@ ipcMain.handle("login", async (_, { platform }) => {
     const p = PLATFORMS[platform];
     if (!p) return { success: false, error: "Unknown platform" };
 
+    // For login: close any off-screen browser, launch visible one
+    if (browserContext) {
+      try { await browserContext.close(); } catch {}
+      browserContext = null;
+    }
+
     const browser = await getBrowser(true); // visible for login
     const page = await browser.newPage();
     await page.goto(p.loginUrl, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
 
-    mainWindow.webContents.send("status", `Chrome opened (visible). Log into ${p.name}, then close the tab. Your session is saved.`);
+    mainWindow.webContents.send("status", `[${p.name}] Chrome opened (visible). Log in, then close the tab.`);
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
