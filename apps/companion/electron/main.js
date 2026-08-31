@@ -243,9 +243,8 @@ async function getBrowser() {
       ignoreDefaultArgs: ["--enable-automation"],
     });
 
-    browserContext.on("close", () => {
-      browserContext = null;
-    });
+    // Don't close on window close — keep alive for sync
+    // Only close when app quits
   }
   
   return browserContext;
