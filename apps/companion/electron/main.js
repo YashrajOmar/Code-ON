@@ -100,7 +100,7 @@ function loadSettings() {
   try {
     if (existsSync(SETTINGS_FILE)) return JSON.parse(readFileSync(SETTINGS_FILE, "utf-8"));
   } catch {}
-  return { handles: {}, codeonUrl: "http://localhost:3000" };
+  return { handles: {}, codeonUrl: "https://codeon-coding-coach.vercel.app" };
 }
 
 function saveSettings(settings) {
