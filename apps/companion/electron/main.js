@@ -100,7 +100,7 @@ function loadSettings() {
   try {
     if (existsSync(SETTINGS_FILE)) return JSON.parse(readFileSync(SETTINGS_FILE, "utf-8"));
   } catch {}
-  return { handles: {}, codeonUrl: "https://codeon-coding-coach.vercel.app" };
+  return { handles: {}, codeonUrl: "https://codeon-coding-coach-eight.vercel.app" };
 }
 
 function saveSettings(settings) {
@@ -369,13 +369,18 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl }) => {
         }
 
         const newSubs = allAcSubs.slice(0, targetCount);
-        mainWindow.webContents.send("status", `Found ${newSubs.length} AC ${p.name} submissions across ${pagesFetched} page(s).`);
+        mainWindow.webContents.send("status", `[${p.name}] Found ${newSubs.length} AC submissions across ${pagesFetched} page(s). Starting code fetch (up to ${targetCount})...`);
 
         const solutions = [];
-        for (const sub of newSubs) {
-          mainWindow.webContents.send("status", `Fetching code: ${p.problemName(sub)}`);
+        for (let i = 0; i < newSubs.length; i++) {
+          const sub = newSubs[i];
+          const progress = `[${p.name}] Scraping ${i + 1}/${newSubs.length}: ${p.problemName(sub)}`;
+          mainWindow.webContents.send("status", progress);
           try {
-            const code = await p.getCode(page, sub);
+            const code = await Promise.race([
+              p.getCode(page, sub),
+              new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 15000)),
+            ]);
             if (code && code.trim().length > 20) {
               solutions.push({
                 code: code.trim(),
@@ -383,10 +388,18 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl }) => {
                 platform,
                 tags: p.tags(sub),
               });
+              mainWindow.webContents.send("status", `[${p.name}] Scraped ${i + 1}/${newSubs.length} ✓`);
+            } else {
+              mainWindow.webContents.send("status", `[${p.name}] Skipped ${i + 1}/${newSubs.length} (no code)`);
             }
-            await page.waitForTimeout(1000);
+            await new Promise(r => setTimeout(r, 1000));
           } catch (e) {
-            results.errors.push(`${p.name} ${p.problemName(sub)}: ${e.message}`);
+            if (e.message === "timeout") {
+              mainWindow.webContents.send("status", `[${p.name}] Skipped ${i + 1}/${newSubs.length} (timeout)`);
+              results.errors.push(`${p.name} ${p.problemName(sub)}: page timeout, skipped`);
+            } else {
+              results.errors.push(`${p.name} ${p.problemName(sub)}: ${e.message}`);
+            }
           }
         }
 

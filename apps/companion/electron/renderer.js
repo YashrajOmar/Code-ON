@@ -1,4 +1,6 @@
 let syncing = false;
+let scrapeCount = {};
+let totalToScrape = {};
 
 const codeonUrl = document.getElementById("codeonUrl");
 const syncBtn = document.getElementById("syncBtn");
@@ -10,11 +12,17 @@ const connText = document.getElementById("connText");
 // Load saved settings
 (async () => {
   const settings = await window.codeon.getSettings();
-  codeonUrl.value = settings.codeonUrl || "http://localhost:3000";
+  codeonUrl.value = settings.codeonUrl || "https://codeon-coding-coach-eight.vercel.app";
   if (settings.handles) {
     Object.entries(settings.handles).forEach(([platform, handle]) => {
       const input = document.querySelector(`input[data-platform="${platform}"]`);
       if (input) input.value = handle;
+      // Mark as logged in if handle exists
+      const loginBtn = document.querySelector(`button[data-login="${platform}"]`);
+      if (loginBtn && handle) {
+        loginBtn.classList.add("logged-in");
+        loginBtn.textContent = "Logged In";
+      }
     });
   }
   await checkConnection();
@@ -43,7 +51,7 @@ function getHandles() {
 function saveSettings() {
   window.codeon.saveSettings({
     handles: getHandles(),
-    codeonUrl: codeonUrl.value.trim() || "http://localhost:3000",
+    codeonUrl: codeonUrl.value.trim() || "https://codeon-coding-coach-eight.vercel.app",
   });
 }
 
@@ -53,7 +61,7 @@ document.querySelectorAll("input[data-platform]").forEach(input => {
 codeonUrl.addEventListener("change", () => { saveSettings(); checkConnection(); });
 
 async function checkConnection() {
-  const url = codeonUrl.value.trim() || "http://localhost:3000";
+  const url = codeonUrl.value.trim() || "https://codeon-coding-coach-eight.vercel.app";
   connText.textContent = "Checking...";
   try {
     const result = await window.codeon.checkConnection({ codeonUrl: url });
@@ -73,7 +81,7 @@ async function checkConnection() {
   }
 }
 
-// Login buttons
+// Login buttons — enabled even during sync
 document.querySelectorAll(".login-btn").forEach(btn => {
   btn.addEventListener("click", async () => {
     const platform = btn.dataset.login;
@@ -86,14 +94,14 @@ document.querySelectorAll(".login-btn").forEach(btn => {
     if (result.success) {
       btn.classList.add("logged-in");
       btn.textContent = "Logged In";
-      addStatus(`Chrome opened. Log into ${platformName}, then close the tab.`, "info");
+      addStatus(`[${platformName}] Chrome opened. Log in, then close the tab.`, "info");
     } else {
-      addStatus(`${platformName} login failed: ${result.error}`, "error");
+      addStatus(`[${platformName}] Login failed: ${result.error}`, "error");
     }
   });
 });
 
-// Sync function — used by both manual click and auto-sync
+// Sync function
 async function doSync() {
   if (syncing) return;
   const handles = getHandles();
@@ -110,7 +118,7 @@ async function doSync() {
   try {
     const result = await window.codeon.sync({
       handles,
-      codeonUrl: codeonUrl.value.trim() || "http://localhost:3000",
+      codeonUrl: codeonUrl.value.trim() || "https://codeon-coding-coach-eight.vercel.app",
     });
 
     if (result.status === "done") {
@@ -118,19 +126,15 @@ async function doSync() {
       Object.entries(result.perPlatform || {}).forEach(([platform, info]) => {
         const name = platform.charAt(0).toUpperCase() + platform.slice(1);
         if (info.count > 0) {
-          addStatus(`  ${name}: ${info.count} solutions uploaded`, "success");
+          addStatus(`  [${name}] ${info.count} solutions uploaded`, "success");
         } else if (info.status === "login_expired") {
-          addStatus(`  ${name}: LOGIN EXPIRED — click Login button to re-login`, "error");
-          // Reset the login button
+          addStatus(`  [${name}] LOGIN EXPIRED — click Login to re-login`, "error");
           const loginBtn = document.querySelector(`button[data-login="${platform}"]`);
-          if (loginBtn) {
-            loginBtn.classList.remove("logged-in");
-            loginBtn.textContent = "Login";
-          }
+          if (loginBtn) { loginBtn.classList.remove("logged-in"); loginBtn.textContent = "Login"; }
         } else if (info.status === "not_supported") {
-          addStatus(`  ${name}: auto-scrape not yet supported`, "info");
+          addStatus(`  [${name}] auto-scrape not supported yet`, "info");
         } else {
-          addStatus(`  ${name}: no new submissions`, "info");
+          addStatus(`  [${name}] no new submissions`, "info");
         }
       });
     } else {
@@ -149,10 +153,8 @@ async function doSync() {
   }
 }
 
-// Manual sync
 syncBtn.addEventListener("click", () => doSync());
 
-// Auto-sync from tray timer
 window.codeon.onAutoSync(() => {
   if (!syncing) {
     addStatus("Auto-sync started...", "info");
