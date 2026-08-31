@@ -1,10 +1,23 @@
 ﻿<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
   <defs>
-    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
       <stop offset="0%" stop-color="#7c3aed"/>
-      <stop offset="100%" stop-color="#4f46e5"/>
+      <stop offset="50%" stop-color="#4f46e5"/>
+      <stop offset="100%" stop-color="#06b6d4"/>
     </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
   </defs>
-  <rect width="256" height="256" rx="56" fill="url(#g)"/>
-  <text x="128" y="180" font-family="Arial Black, Arial, sans-serif" font-size="160" font-weight="900" fill="white" text-anchor="middle">C</text>
+  <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+  <!-- Code brackets -->
+  <path d="M90 60 L50 128 L90 196" stroke="white" stroke-width="14" fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  <path d="M166 60 L206 128 L166 196" stroke="white" stroke-width="14" fill="none" stroke-linecap="round" stroke-linejoin="round" filter="url(#glow)"/>
+  <!-- AI dot -->
+  <circle cx="128" cy="128" r="12" fill="#06b6d4" filter="url(#glow)"/>
+  <circle cx="128" cy="128" r="6" fill="white"/>
 </svg>

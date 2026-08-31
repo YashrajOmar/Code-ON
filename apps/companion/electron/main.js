@@ -429,20 +429,31 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl }) => {
         if (solutions.length > 0) {
           mainWindow.webContents.send("status", `Uploading ${solutions.length} ${p.name} solutions...`);
           try {
-    const webhookSecret = "codeon-companion-secret";
-    const res = await fetch(`${codeonUrl}/api/settings/seed-code`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${webhookSecret}`,
-      },
-      body: JSON.stringify({ solutions }),
-    });
-            const data = await res.json();
-            if (data.success) {
+            const webhookSecret = "codeon-companion-secret";
+            mainWindow.webContents.send("status", `Uploading to ${codeonUrl}/api/settings/seed-code...`);
+            const res = await fetch(`${codeonUrl}/api/settings/seed-code`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${webhookSecret}`,
+              },
+              body: JSON.stringify({ solutions }),
+            });
+            const resText = await res.text();
+            let data;
+            try { data = JSON.parse(resText); } catch {
+              mainWindow.webContents.send("status", `[${p.name}] Upload failed: server returned HTML (not JSON). Is CodeOn running?`);
+              results.errors.push(`${p.name} upload failed: server returned non-JSON response`);
+              results.perPlatform[platform] = { status: "upload_error", count: 0 };
+            }
+            if (data && data.success) {
               results.total += solutions.length;
               results.perPlatform[platform] = { status: "done", count: solutions.length };
-              mainWindow.webContents.send("status", `${p.name}: ${solutions.length} solutions uploaded.`);
+              mainWindow.webContents.send("status", `[${p.name}] ${solutions.length} solutions uploaded ✓`);
+            } else if (data) {
+              mainWindow.webContents.send("status", `[${p.name}] Upload failed: ${data.error || "Unknown error"}`);
+              results.errors.push(`${p.name} upload failed: ${data.error || "Unknown error"}`);
+              results.perPlatform[platform] = { status: "upload_error", count: 0 };
             }
           } catch (e) {
             results.errors.push(`${p.name} upload failed: ${e.message}`);
