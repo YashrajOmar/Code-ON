@@ -4,11 +4,9 @@ import type { NextRequest } from "next/server";
 const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
-  // Public API routes that don't require auth:
-  // - /api/webhooks/* uses its own Bearer token auth (INGEST_WEBHOOK_SECRET)
-  // - /api/companion is public SSE for Competitive Companion extension
   "/api/webhooks/(.*)",
   "/api/companion",
+  "/api/settings/seed-code",
 ]);
 
 const handler = clerkMiddleware(async (auth, req) => {

@@ -264,11 +264,15 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl }) => {
         if (solutions.length > 0) {
           mainWindow.webContents.send("status", `Uploading ${solutions.length} ${p.name} solutions...`);
           try {
-            const res = await fetch(`${codeonUrl}/api/settings/seed-code`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ solutions }),
-            });
+    const webhookSecret = "codeon-companion-secret";
+    const res = await fetch(`${codeonUrl}/api/settings/seed-code`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${webhookSecret}`,
+      },
+      body: JSON.stringify({ solutions }),
+    });
             const data = await res.json();
             if (data.success) {
               results.total += solutions.length;

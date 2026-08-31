@@ -42,10 +42,26 @@ export async function GET() {
  */
 export async function POST(req: Request) {
   try {
-    const authUser = await getAuthUser();
-    if (!authUser) return unauthorized();
+    // Check for companion app webhook secret first (no Clerk auth needed)
+    const authHeader = req.headers.get('authorization');
+    const webhookSecret = process.env.INGEST_WEBHOOK_SECRET;
+    let userId: string;
 
-    const rl = rateLimit(`seed:${authUser.userId}`, RATE_LIMITS.seed);
+    if (authHeader === `Bearer ${webhookSecret}` && webhookSecret) {
+      // Companion app — use demo user for now
+      const user = await prisma.user.findUnique({ where: { email: 'demo@codeon.dev' } });
+      if (!user) {
+        return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      }
+      userId = user.id;
+    } else {
+      // Regular auth via Clerk
+      const authUser = await getAuthUser();
+      if (!authUser) return unauthorized();
+      userId = authUser.userId;
+    }
+
+    const rl = rateLimit(`seed:${userId}`, RATE_LIMITS.seed);
     if (!rl.allowed) return tooManyRequests(rl.resetAt);
 
     const body = await req.json();
@@ -55,7 +71,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'No solutions provided' }, { status: 400 });
     }
 
-    const userId = authUser.userId;
+    // userId already set above from auth or webhook
 
     // Get existing trained solutions to check for duplicates
     const existing = await prisma.$queryRaw<Array<{ topic: string }>>`
