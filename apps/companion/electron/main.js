@@ -17,6 +17,7 @@ function createWindow() {
     resizable: false,
     title: "CodeOn Companion",
     show: !shouldHide,
+    icon: path.join(__dirname, "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -38,8 +39,9 @@ function createWindow() {
 
 // System tray
 function createTray() {
-  const icon = nativeImage.createEmpty();
-  tray = new Tray(icon);
+  const icon = nativeImage.createFromPath(path.join(__dirname, "icon.png"));
+  const resizedIcon = icon.resize({ width: 16, height: 16 });
+  tray = new Tray(resizedIcon);
   tray.setToolTip("CodeOn Companion");
 
   const contextMenu = Menu.buildFromTemplate([
