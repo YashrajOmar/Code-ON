@@ -217,7 +217,6 @@ let browserContext = null;
 async function getBrowser() {
   if (browserContext) {
     try {
-      // Check if context is still alive
       await browserContext.pages();
     } catch {
       browserContext = null;
@@ -226,13 +225,20 @@ async function getBrowser() {
   
   if (!browserContext) {
     const { chromium } = require("playwright");
+    const { execSync } = require("child_process");
+    const fs = require("fs");
+    
     if (!existsSync(PROFILE_DIR)) mkdirSync(PROFILE_DIR, { recursive: true });
     
-    // Clear any leftover Chrome lock files
-    const lockFiles = ["SingletonLock", "SingletonCookie", "SingletonSocket", "Default/LOCK"];
+    // Kill ALL Chrome processes
+    try { execSync("taskkill /F /IM chrome.exe /T", { stdio: "ignore" }); } catch {}
+    await new Promise(r => setTimeout(r, 2000));
+    
+    // Clear ALL lock files
+    const lockFiles = ["SingletonLock", "SingletonCookie", "SingletonSocket", "Default/LOCK", "Default/SingletonLock"];
     for (const lock of lockFiles) {
       const lockPath = path.join(PROFILE_DIR, lock);
-      try { if (existsSync(lockPath)) require("fs").unlinkSync(lockPath); } catch {}
+      try { if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath); } catch {}
     }
     
     browserContext = await chromium.launchPersistentContext(PROFILE_DIR, {
@@ -242,9 +248,6 @@ async function getBrowser() {
       args: ["--start-maximized", "--disable-blink-features=AutomationControlled"],
       ignoreDefaultArgs: ["--enable-automation"],
     });
-
-    // Don't close on window close — keep alive for sync
-    // Only close when app quits
   }
   
   return browserContext;
