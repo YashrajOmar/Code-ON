@@ -1,7 +1,7 @@
 let syncing = false;
-let scrapeCount = 0;
-let uploadCount = 0;
-let failCount = 0;
+let scrapedTotal = 0;
+let uploadedTotal = 0;
+let skippedTotal = 0;
 
 const codeonUrl = document.getElementById("codeonUrl");
 const syncBtn = document.getElementById("syncBtn");
@@ -13,26 +13,11 @@ const scrapedCountEl = document.getElementById("scrapedCount");
 const uploadedCountEl = document.getElementById("uploadedCount");
 const failedCountEl = document.getElementById("failedCount");
 
-// Load saved settings
-(async () => {
-  const settings = await window.codeon.getSettings();
-  codeonUrl.value = settings.codeonUrl || "https://codeon-coding-coach-eight.vercel.app";
-  if (settings.handles) {
-    Object.entries(settings.handles).forEach(([platform, handle]) => {
-      const input = document.querySelector(`input[data-platform="${platform}"]`);
-      if (input) input.value = handle;
-      // Mark as logged in if handle exists
-      const loginBtn = document.querySelector(`button[data-login="${platform}"]`);
-      if (loginBtn && handle) {
-        loginBtn.classList.add("logged-in");
-        loginBtn.textContent = "Logged In";
-      }
-    });
-  }
-  await checkConnection();
-})();
-
-window.codeon.onStatus((msg) => addStatus(msg, "info"));
+function updateCounters() {
+  if (scrapedCountEl) scrapedCountEl.textContent = scrapedTotal;
+  if (uploadedCountEl) uploadedCountEl.textContent = uploadedTotal;
+  if (failedCountEl) failedCountEl.textContent = skippedTotal;
+}
 
 function addStatus(msg, type = "") {
   const line = document.createElement("div");
@@ -40,6 +25,32 @@ function addStatus(msg, type = "") {
   line.textContent = msg;
   statusBox.appendChild(line);
   statusBox.scrollTop = statusBox.scrollHeight;
+
+  // Parse status to update counters
+  if (msg.includes("Scraped ") && msg.includes("✓")) {
+    scrapedTotal++;
+    updateCounters();
+  } else if (msg.includes("Skipped ")) {
+    skippedTotal++;
+    updateCounters();
+  } else if (msg.includes("solutions uploaded")) {
+    const match = msg.match(/(\d+) solutions uploaded/);
+    if (match) {
+      uploadedTotal += parseInt(match[1]);
+      updateCounters();
+    }
+  } else if (msg.includes("Uploaded ") && msg.includes("solution")) {
+    const match = msg.match(/Uploaded (\d+) solution/);
+    if (match) {
+      uploadedTotal += parseInt(match[1]);
+      updateCounters();
+    }
+  } else if (msg === "Starting sync...") {
+    scrapedTotal = 0;
+    uploadedTotal = 0;
+    skippedTotal = 0;
+    updateCounters();
+  }
 }
 
 function getHandles() {
@@ -58,11 +69,6 @@ function saveSettings() {
     codeonUrl: codeonUrl.value.trim() || "https://codeon-coding-coach-eight.vercel.app",
   });
 }
-
-document.querySelectorAll("input[data-platform]").forEach(input => {
-  input.addEventListener("change", saveSettings);
-});
-codeonUrl.addEventListener("change", () => { saveSettings(); checkConnection(); });
 
 async function checkConnection() {
   const url = codeonUrl.value.trim() || "https://codeon-coding-coach-eight.vercel.app";
@@ -85,7 +91,31 @@ async function checkConnection() {
   }
 }
 
-// Login buttons — enabled even during sync
+// Load saved settings
+(async () => {
+  const settings = await window.codeon.getSettings();
+  codeonUrl.value = settings.codeonUrl || "https://codeon-coding-coach-eight.vercel.app";
+  if (settings.handles) {
+    Object.entries(settings.handles).forEach(([platform, handle]) => {
+      const input = document.querySelector(`input[data-platform="${platform}"]`);
+      if (input) input.value = handle;
+      const loginBtn = document.querySelector(`button[data-login="${platform}"]`);
+      if (loginBtn && handle) {
+        loginBtn.classList.add("logged-in");
+        loginBtn.textContent = "Logged In";
+      }
+    });
+  }
+  await checkConnection();
+})();
+
+window.codeon.onStatus((msg) => addStatus(msg, "info"));
+
+document.querySelectorAll("input[data-platform]").forEach(input => {
+  input.addEventListener("change", saveSettings);
+});
+codeonUrl.addEventListener("change", () => { saveSettings(); checkConnection(); });
+
 document.querySelectorAll(".login-btn").forEach(btn => {
   btn.addEventListener("click", async () => {
     const platform = btn.dataset.login;
@@ -105,7 +135,6 @@ document.querySelectorAll(".login-btn").forEach(btn => {
   });
 });
 
-// Sync function
 async function doSync() {
   if (syncing) return;
   const handles = getHandles();
@@ -146,7 +175,7 @@ async function doSync() {
     }
 
     if (result.errors && result.errors.length > 0) {
-      result.errors.forEach(err => addStatus(`  ${err}`, "error"));
+      result.errors.slice(0, 5).forEach(err => addStatus(`  ${err}`, "error"));
     }
   } catch (e) {
     addStatus(`Sync failed: ${e.message}`, "error");

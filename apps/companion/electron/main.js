@@ -88,7 +88,7 @@ function startAutoSync() {
     if (hasHandles) {
       mainWindow.webContents.send("auto-sync");
     }
-  }, 10000);
+    }, 60000); // 60 seconds after startup (was 10s for testing)
 }
 
 // ── Storage ────────────────────────────────────────────────────────────────
@@ -214,38 +214,56 @@ ipcMain.handle("save-settings", (_, settings) => saveSettings(settings));
 
 let browserContext = null;
 
-async function getBrowser() {
+async function killChromeAndClearLocks() {
+  const { execSync } = require("child_process");
+  const fs = require("fs");
+  try { execSync("taskkill /F /IM chrome.exe /T", { stdio: "ignore" }); } catch {}
+  await new Promise(r => setTimeout(r, 2000));
+  const lockFiles = ["SingletonLock", "SingletonCookie", "SingletonSocket", "Default/LOCK", "Default/SingletonLock"];
+  for (const lock of lockFiles) {
+    try { if (fs.existsSync(path.join(PROFILE_DIR, lock))) fs.unlinkSync(path.join(PROFILE_DIR, lock)); } catch {}
+  }
+}
+
+async function getBrowser(visible = false) {
   if (browserContext) {
     try {
       await browserContext.pages();
+      return browserContext;
     } catch {
       browserContext = null;
     }
   }
   
-  if (!browserContext) {
-    const { chromium } = require("playwright");
-    const { execSync } = require("child_process");
-    const fs = require("fs");
-    
-    if (!existsSync(PROFILE_DIR)) mkdirSync(PROFILE_DIR, { recursive: true });
-    
-    // Kill ALL Chrome processes
-    try { execSync("taskkill /F /IM chrome.exe /T", { stdio: "ignore" }); } catch {}
-    await new Promise(r => setTimeout(r, 2000));
-    
-    // Clear ALL lock files
-    const lockFiles = ["SingletonLock", "SingletonCookie", "SingletonSocket", "Default/LOCK", "Default/SingletonLock"];
-    for (const lock of lockFiles) {
-      const lockPath = path.join(PROFILE_DIR, lock);
-      try { if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath); } catch {}
-    }
-    
+  const { chromium } = require("playwright");
+  if (!existsSync(PROFILE_DIR)) mkdirSync(PROFILE_DIR, { recursive: true });
+  
+  await killChromeAndClearLocks();
+  
+  const args = ["--disable-blink-features=AutomationControlled"];
+  if (visible) {
+    // Login mode — visible to user
+    args.push("--start-maximized");
+  } else {
+    // Sync mode — off-screen, but real headed browser (Cloudflare passes)
+    args.push("--window-position=-32000,-32000", "--window-size=1280,800");
+  }
+  
+  try {
     browserContext = await chromium.launchPersistentContext(PROFILE_DIR, {
       headless: false,
       channel: "chrome",
-      viewport: null,
-      args: ["--start-maximized", "--disable-blink-features=AutomationControlled"],
+      viewport: visible ? null : { width: 1280, height: 800 },
+      args,
+      ignoreDefaultArgs: ["--enable-automation"],
+    });
+  } catch (e) {
+    await killChromeAndClearLocks();
+    browserContext = await chromium.launchPersistentContext(PROFILE_DIR, {
+      headless: false,
+      channel: "chrome",
+      viewport: visible ? null : { width: 1280, height: 800 },
+      args,
       ignoreDefaultArgs: ["--enable-automation"],
     });
   }
@@ -258,11 +276,11 @@ ipcMain.handle("login", async (_, { platform }) => {
     const p = PLATFORMS[platform];
     if (!p) return { success: false, error: "Unknown platform" };
 
-    const browser = await getBrowser();
+    const browser = await getBrowser(true); // visible for login
     const page = await browser.newPage();
     await page.goto(p.loginUrl, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
 
-    mainWindow.webContents.send("status", `Chrome opened. Please log into ${p.name}, then close the browser tab when done.`);
+    mainWindow.webContents.send("status", `Chrome opened (visible). Log into ${p.name}, then close the tab. Your session is saved.`);
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
@@ -283,7 +301,7 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl }) => {
   const results = { total: 0, perPlatform: {}, errors: [] };
 
   try {
-    const browser = await getBrowser();
+    const browser = await getBrowser(false); // off-screen for sync
     const page = await browser.newPage();
 
     for (const [platform, handle] of Object.entries(handles)) {
