@@ -1,6 +1,7 @@
 let syncing = false;
-let scrapeCount = {};
-let totalToScrape = {};
+let scrapeCount = 0;
+let uploadCount = 0;
+let failCount = 0;
 
 const codeonUrl = document.getElementById("codeonUrl");
 const syncBtn = document.getElementById("syncBtn");
@@ -8,6 +9,9 @@ const syncBtnText = document.getElementById("syncBtnText");
 const statusBox = document.getElementById("statusBox");
 const connDot = document.getElementById("connDot");
 const connText = document.getElementById("connText");
+const scrapedCountEl = document.getElementById("scrapedCount");
+const uploadedCountEl = document.getElementById("uploadedCount");
+const failedCountEl = document.getElementById("failedCount");
 
 // Load saved settings
 (async () => {
