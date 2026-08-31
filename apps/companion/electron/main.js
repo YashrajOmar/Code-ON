@@ -149,6 +149,13 @@ ipcMain.handle("save-settings", (_, settings) => saveSettings(settings));
 let browserContext = null;
 
 async function getBrowser() {
+  if (!browserContext || !browserContext.browser() || !browserContext.pages) {
+    try {
+      if (browserContext) await browserContext.close().catch(() => {});
+    } catch {}
+    browserContext = null;
+  }
+  
   if (!browserContext) {
     const { chromium } = require("playwright");
     if (!existsSync(PROFILE_DIR)) mkdirSync(PROFILE_DIR, { recursive: true });
@@ -159,7 +166,13 @@ async function getBrowser() {
       args: ["--start-maximized", "--disable-blink-features=AutomationControlled"],
       ignoreDefaultArgs: ["--enable-automation"],
     });
+
+    // If user closes the browser, mark as closed so next call reopens
+    browserContext.on("close", () => {
+      browserContext = null;
+    });
   }
+  
   return browserContext;
 }
 
