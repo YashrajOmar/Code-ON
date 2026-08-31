@@ -127,7 +127,7 @@ const PLATFORMS = {
   codeforces: {
     name: "Codeforces",
     loginUrl: "https://codeforces.com/enter",
-    apiSubmissions: (handle) => `https://codeforces.com/api/user.status?handle=${handle}&from=1&count=100`,
+    apiSubmissions: (handle) => `https://codeforces.com/api/user.status?handle=${handle}&from=1&count=1000`,
     isAc: (s) => s.verdict === "OK",
     isCpp: (s) => s.programmingLanguage && s.programmingLanguage.includes("C++"),
     getCode: async (page, sub) => {
@@ -326,7 +326,7 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl }) => {
         const isFirstSync = lastSync === 0;
         const newSubs = apiData
           .filter(s => p.isAc(s) && p.isCpp(s) && p.timestamp(s) > lastSync)
-          .slice(0, isFirstSync ? 100 : 15);
+          .slice(0, isFirstSync ? 500 : 15);
 
         mainWindow.webContents.send("status", `Found ${newSubs.length} new ${p.name} submissions.`);
 
