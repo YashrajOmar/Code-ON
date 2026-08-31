@@ -150,13 +150,113 @@ const PLATFORMS = {
   leetcode: {
     name: "LeetCode",
     loginUrl: "https://leetcode.com/accounts/login/",
-    apiSubmissions: null,
+    // LeetCode doesn't have a public API for code — we scrape the submissions page
+    apiSubmissions: null, // null means we use page scraping instead of API
     isAc: null,
     isCpp: null,
     getCode: null,
     problemName: null,
     tags: null,
     timestamp: null,
+    // Custom scraper for LeetCode
+    scrape: async (page, handle, lastSync, targetCount, sendStatus) => {
+      const solutions = [];
+      const seen = new Set();
+
+      // Go to user's submissions page (requires login)
+      sendStatus(`[LeetCode] Loading submissions page for ${handle}...`);
+      await page.goto(`https://leetcode.com/submissions/`, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
+      await page.waitForTimeout(3000);
+
+      // Try to get submission links from the page
+      let submissionLinks = await page.evaluate(() => {
+        const links = document.querySelectorAll('a[href*="/submissions/detail/"]');
+        const results = [];
+        links.forEach(link => {
+          const href = link.getAttribute('href') || '';
+          const match = href.match(/\/submissions\/detail\/(\d+)/);
+          if (match) {
+            results.push({
+              id: match[1],
+              title: link.textContent?.trim() || 'Unknown',
+              url: link.href,
+            });
+          }
+        });
+        return results;
+      }).catch(() => []);
+
+      // Also try the submissions table rows
+      if (submissionLinks.length === 0) {
+        // Try alternate selectors
+        submissionLinks = await page.evaluate(() => {
+          const allLinks = Array.from(document.querySelectorAll('a'));
+          const results = [];
+          for (const link of allLinks) {
+            const href = link.getAttribute('href') || '';
+            if (href.includes('/submissions/detail/')) {
+              const match = href.match(/\/submissions\/detail\/(\d+)/);
+              if (match) {
+                results.push({
+                  id: match[1],
+                  title: link.textContent?.trim() || 'Unknown',
+                  url: link.href,
+                });
+              }
+            }
+          }
+          return results;
+        }).catch(() => []);
+      }
+
+      // Deduplicate
+      submissionLinks = submissionLinks.filter(s => {
+        if (seen.has(s.id)) return false;
+        seen.add(s.id);
+        return true;
+      });
+
+      sendStatus(`[LeetCode] Found ${submissionLinks.length} submission links.`);
+
+      // Limit to target count
+      const limit = Math.min(submissionLinks.length, targetCount);
+
+      for (let i = 0; i < limit; i++) {
+        const sub = submissionLinks[i];
+        sendStatus(`[LeetCode] Scraping ${i + 1}/${limit}: ${sub.title}`);
+
+        try {
+          await page.goto(sub.url, { waitUntil: "domcontentloaded", timeout: 15000 });
+          await page.waitForTimeout(2000);
+
+          // Try multiple selectors for code
+          let code = await page.locator("pre code, .code-container pre, [class*='code'] pre, pre").first().textContent({ timeout: 5000 }).catch(() => null);
+
+          if (!code || code.trim().length < 20) {
+            // Try ACE editor
+            code = await page.locator(".ace_content, .monaco-editor .view-line").first().textContent({ timeout: 5000 }).catch(() => null);
+          }
+
+          if (code && code.trim().length > 20) {
+            solutions.push({
+              code: code.trim(),
+              problemTitle: sub.title,
+              platform: "leetcode",
+              tags: [],
+            });
+            sendStatus(`[LeetCode] Scraped ${i + 1}/${limit} ✓`);
+          } else {
+            sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (no code)`);
+          }
+
+          await page.waitForTimeout(1500);
+        } catch (e) {
+          sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (error: ${e.message})`);
+        }
+      }
+
+      return solutions;
+    },
   },
   atcoder: {
     name: "AtCoder",
@@ -309,7 +409,69 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl }) => {
     for (const [platform, handle] of Object.entries(handles)) {
       if (!handle || !handle.trim()) continue;
       const p = PLATFORMS[platform];
-      if (!p || !p.apiSubmissions) {
+      if (!p) {
+        results.perPlatform[platform] = { status: "not_supported", count: 0 };
+        continue;
+      }
+
+      // LeetCode uses custom scraper (no public API)
+      if (p.scrape) {
+        mainWindow.webContents.send("status", `[${p.name}] Starting scrape for ${handle}...`);
+        try {
+          const lastSync = state[`${platform}LastSync`] || 0;
+          const isFirstSync = lastSync === 0;
+          const targetCount = isFirstSync ? 100 : 15;
+
+          const solutions = await p.scrape(page, handle, lastSync, targetCount, (msg) => {
+            mainWindow.webContents.send("status", msg);
+          });
+
+          if (solutions.length > 0) {
+            mainWindow.webContents.send("status", `[${p.name}] Uploading ${solutions.length} solutions...`);
+            try {
+              const webhookSecret = "codeon-companion-secret";
+              const res = await fetch(`${codeonUrl}/api/settings/seed-code`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "Authorization": `Bearer ${webhookSecret}`,
+                },
+                body: JSON.stringify({ solutions }),
+              });
+              const resText = await res.text();
+              let data;
+              try { data = JSON.parse(resText); } catch {
+                results.errors.push(`${p.name} upload failed: server returned non-JSON`);
+                results.perPlatform[platform] = { status: "upload_error", count: 0 };
+              }
+              if (data && data.success) {
+                results.total += solutions.length;
+                results.perPlatform[platform] = { status: "done", count: solutions.length };
+                mainWindow.webContents.send("status", `[${p.name}] ${solutions.length} solutions uploaded ✓`);
+              } else if (data) {
+                results.errors.push(`${p.name} upload failed: ${data.error || "Unknown"}`);
+                results.perPlatform[platform] = { status: "upload_error", count: 0 };
+              }
+            } catch (e) {
+              results.errors.push(`${p.name} upload failed: ${e.message}`);
+              results.perPlatform[platform] = { status: "upload_error", count: 0 };
+            }
+          } else {
+            results.perPlatform[platform] = { status: "done", count: 0 };
+            mainWindow.webContents.send("status", `[${p.name}] No submissions found.`);
+          }
+
+          if (solutions.length > 0) {
+            state[`${platform}LastSync`] = Math.floor(Date.now() / 1000);
+          }
+        } catch (e) {
+          results.errors.push(`${p.name}: ${e.message}`);
+          results.perPlatform[platform] = { status: "error", count: 0 };
+        }
+        continue;
+      }
+
+      if (!p.apiSubmissions) {
         results.perPlatform[platform] = { status: "not_supported", count: 0 };
         continue;
       }
