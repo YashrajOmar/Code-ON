@@ -1,43 +1,30 @@
-// CodeOn Companion — Renderer process
-
 let syncing = false;
 
-const cfHandle = document.getElementById("cfHandle");
-const lcHandle = document.getElementById("lcHandle");
 const codeonUrl = document.getElementById("codeonUrl");
 const syncBtn = document.getElementById("syncBtn");
 const syncBtnText = document.getElementById("syncBtnText");
 const statusBox = document.getElementById("statusBox");
 const connDot = document.getElementById("connDot");
 const connText = document.getElementById("connText");
-const cfLoginBtn = document.getElementById("cfLoginBtn");
-const lcLoginBtn = document.getElementById("lcLoginBtn");
 
 // Load saved settings
 (async () => {
   const settings = await window.codeon.getSettings();
-  cfHandle.value = settings.cfHandle || "";
-  lcHandle.value = settings.lcHandle || "";
   codeonUrl.value = settings.codeonUrl || "http://localhost:3000";
+
+  // Fill in saved handles
+  if (settings.handles) {
+    Object.entries(settings.handles).forEach(([platform, handle]) => {
+      const input = document.querySelector(`input[data-platform="${platform}"]`);
+      if (input) input.value = handle;
+    });
+  }
+
   await checkConnection();
 })();
 
-// Save settings on change
-function saveSettings() {
-  window.codeon.saveSettings({
-    cfHandle: cfHandle.value.trim(),
-    lcHandle: lcHandle.value.trim(),
-    codeonUrl: codeonUrl.value.trim() || "http://localhost:3000",
-  });
-}
-cfHandle.addEventListener("change", saveSettings);
-lcHandle.addEventListener("change", saveSettings);
-codeonUrl.addEventListener("change", () => { saveSettings(); checkConnection(); });
-
 // Status listener
-window.codeon.onStatus((msg) => {
-  addStatus(msg, "info");
-});
+window.codeon.onStatus((msg) => addStatus(msg, "info"));
 
 function addStatus(msg, type = "") {
   const line = document.createElement("div");
@@ -47,6 +34,32 @@ function addStatus(msg, type = "") {
   statusBox.scrollTop = statusBox.scrollHeight;
 }
 
+// Collect all handles
+function getHandles() {
+  const handles = {};
+  document.querySelectorAll("input[data-platform]").forEach(input => {
+    const platform = input.dataset.platform;
+    const handle = input.value.trim();
+    if (handle) handles[platform] = handle;
+  });
+  return handles;
+}
+
+// Save settings
+function saveSettings() {
+  window.codeon.saveSettings({
+    handles: getHandles(),
+    codeonUrl: codeonUrl.value.trim() || "http://localhost:3000",
+  });
+}
+
+// Save on any input change
+document.querySelectorAll("input[data-platform]").forEach(input => {
+  input.addEventListener("change", saveSettings);
+});
+codeonUrl.addEventListener("change", () => { saveSettings(); checkConnection(); });
+
+// Connection check
 async function checkConnection() {
   const url = codeonUrl.value.trim() || "http://localhost:3000";
   connText.textContent = "Checking...";
@@ -69,36 +82,33 @@ async function checkConnection() {
 }
 
 // Login buttons
-cfLoginBtn.addEventListener("click", async () => {
-  cfLoginBtn.textContent = "Opening...";
-  cfLoginBtn.disabled = true;
-  const result = await window.codeon.login({ platform: "codeforces" });
-  cfLoginBtn.textContent = "Login";
-  cfLoginBtn.disabled = false;
-  if (result.success) {
-    addStatus("Chrome opened. Log into Codeforces, then close the browser.", "info");
-  } else {
-    addStatus(`Login failed: ${result.error}`, "error");
-  }
-});
+document.querySelectorAll(".login-btn").forEach(btn => {
+  btn.addEventListener("click", async () => {
+    const platform = btn.dataset.login;
+    const platformName = btn.parentElement.parentElement.querySelector("label").textContent;
 
-lcLoginBtn.addEventListener("click", async () => {
-  lcLoginBtn.textContent = "Opening...";
-  lcLoginBtn.disabled = true;
-  const result = await window.codeon.login({ platform: "leetcode" });
-  lcLoginBtn.textContent = "Login";
-  lcLoginBtn.disabled = false;
-  if (result.success) {
-    addStatus("Chrome opened. Log into LeetCode, then close the browser.", "info");
-  } else {
-    addStatus(`Login failed: ${result.error}`, "error");
-  }
+    btn.textContent = "Opening...";
+    btn.disabled = true;
+
+    const result = await window.codeon.login({ platform });
+    btn.textContent = "Login";
+    btn.disabled = false;
+
+    if (result.success) {
+      btn.classList.add("logged-in");
+      btn.textContent = "Logged In";
+      addStatus(`Chrome opened. Log into ${platformName}, then close the tab.`, "info");
+    } else {
+      addStatus(`${platformName} login failed: ${result.error}`, "error");
+    }
+  });
 });
 
 // Sync button
 syncBtn.addEventListener("click", async () => {
   if (syncing) return;
-  if (!cfHandle.value.trim() && !lcHandle.value.trim()) {
+  const handles = getHandles();
+  if (Object.keys(handles).length === 0) {
     addStatus("Please enter at least one handle.", "error");
     return;
   }
@@ -110,13 +120,24 @@ syncBtn.addEventListener("click", async () => {
 
   try {
     const result = await window.codeon.sync({
-      cfHandle: cfHandle.value.trim(),
-      lcHandle: lcHandle.value.trim(),
+      handles,
       codeonUrl: codeonUrl.value.trim() || "http://localhost:3000",
     });
 
     if (result.status === "done") {
-      addStatus(`Sync complete! Uploaded ${result.total} solution(s).`, "success");
+      addStatus(`Sync complete! Uploaded ${result.total} solution(s) total.`, "success");
+
+      // Per-platform results
+      Object.entries(result.perPlatform || {}).forEach(([platform, info]) => {
+        const name = platform.charAt(0).toUpperCase() + platform.slice(1);
+        if (info.count > 0) {
+          addStatus(`  ${name}: ${info.count} solutions uploaded`, "success");
+        } else if (info.status === "not_supported") {
+          addStatus(`  ${name}: auto-scrape not yet supported for this platform`, "info");
+        } else {
+          addStatus(`  ${name}: no new submissions`, "info");
+        }
+      });
     } else {
       addStatus("Sync completed with errors.", "error");
     }
@@ -124,8 +145,6 @@ syncBtn.addEventListener("click", async () => {
     if (result.errors && result.errors.length > 0) {
       result.errors.forEach(err => addStatus(`  ${err}`, "error"));
     }
-
-    if (result.cf) addStatus(`Codeforces: ${result.cf} solutions uploaded`, "success");
   } catch (e) {
     addStatus(`Sync failed: ${e.message}`, "error");
   } finally {
