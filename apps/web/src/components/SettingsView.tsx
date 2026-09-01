@@ -127,6 +127,8 @@ export default function SettingsView() {
     } catch { /* ignore */ }
     setTokenLoading(false);
   }
+
+  async function handleSaveKeys() {
     setIsSaving(true);
     setMessage(null);
     try {
