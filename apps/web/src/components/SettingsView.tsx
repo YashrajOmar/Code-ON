@@ -594,7 +594,7 @@ export default function SettingsView() {
         {/* Seed Code Section — Paste Your Solutions */}
         <div className="glass" style={{ borderRadius: 12, padding: 24, marginBottom: 24 }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>
-            Train Your AI Mentor (Paste Solutions)
+            Train Your AI Mentor
             {trainedSolutions.length > 0 && (
               <span className="tag tag-emerald" style={{ marginLeft: 10, fontSize: 11 }}>
                 {trainedSolutions.length} trained
@@ -602,7 +602,7 @@ export default function SettingsView() {
             )}
           </h2>
           <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 20 }}>
-            Paste 2-3 of your accepted solutions below. CodeOn analyzes your coding style and uses it to personalize hints. One-time setup.
+            Paste 2-3 of your accepted solutions below, or use the CodeOn Companion desktop app to auto-sync from Codeforces/LeetCode.
           </p>
 
           {trainedSolutions.length > 0 && (
