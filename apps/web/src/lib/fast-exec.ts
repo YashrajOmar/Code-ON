@@ -105,70 +105,62 @@ async function executeViaDocker(
 }
 
 /**
- * Execute code via Piston API (deployed / no Docker).
- * Free public API: https://emkc.org/api/v2/piston
+ * Execute code via Wandbox API (deployed / no Docker).
+ * Free public API: https://wandbox.org/api
  * Supports C++, Python, Java — no API key needed.
+ * Tested: 2026-09-01, working.
  */
-async function executeViaPiston(
+async function executeViaWandbox(
   code: string,
   input: string,
   timeoutMs: number
 ): Promise<{ output: string; error: string | null }> {
-  const PISTON_URL = "https://emkc.org/api/v2/piston/execute";
+  const WANDBOX_URL = "https://wandbox.org/api/compile.json";
 
-  // Map our language to Piston's language + version
-  const langMap: Record<string, { language: string; version: string }> = {
-    cpp: { language: "c++", version: "10.2.0" },
-    cpp17: { language: "c++", version: "10.2.0" },
-    cpp20: { language: "c++", version: "10.2.0" },
-    python3: { language: "python", version: "3.10.0" },
-    java: { language: "java", version: "15.0.2" },
+  // Map our language to Wandbox's compiler name
+  const compilerMap: Record<string, string> = {
+    cpp: "gcc-head-cpp",
+    cpp17: "gcc-head-cpp",
+    cpp20: "gcc-head-cpp",
+    python3: "cpython-head",
+    java: "openjdk-head",
   };
 
-  const lang = langMap["cpp"] ?? langMap["cpp17"];
+  const compiler = compilerMap["cpp"] ?? compilerMap["cpp17"] ?? "gcc-head-cpp";
 
-  const response = await fetch(PISTON_URL, {
+  const response = await fetch(WANDBOX_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      language: lang.language,
-      version: lang.version,
-      files: [{ name: "main.cpp", content: code }],
+      code,
+      compiler,
       stdin: input,
-      compile_timeout: 10000,
-      run_timeout: timeoutMs,
-      compile_memory_limit: -1,
-      run_memory_limit: -1,
+      runtime: false,
     }),
-    signal: AbortSignal.timeout(30000),
+    signal: AbortSignal.timeout(Math.max(30000, timeoutMs + 5000)),
   });
 
   if (!response.ok) {
     const errText = await response.text().catch(() => "Unknown error");
-    return { output: "", error: `Piston API error (${response.status}): ${errText.substring(0, 200)}` };
+    return { output: "", error: `Wandbox API error (${response.status}): ${errText.substring(0, 200)}` };
   }
 
   const data = await response.json();
 
   // Check compilation errors
-  if (data.compile && data.compile.code !== 0) {
-    const compileErr = (data.compile.stderr || data.compile.output || "").trim();
-    return { output: compileErr, error: "compilation" };
+  if (data.compiler_error && data.compiler_error.trim().length > 0) {
+    return { output: data.compiler_error.trim(), error: "compilation" };
   }
 
-  // Check run errors
-  if (data.run) {
-    const output = (data.run.stdout || "").trim();
-    const stderr = (data.run.stderr || "").trim();
+  // Check run output
+  const output = (data.program_output || "").trim();
+  const stderr = (data.program_error || "").trim();
 
-    if (data.run.code !== 0 && stderr) {
-      return { output, error: stderr };
-    }
-
-    return { output, error: stderr || null };
+  if (data.status !== 0 && stderr) {
+    return { output, error: stderr };
   }
 
-  return { output: "", error: "No output from Piston API" };
+  return { output, error: stderr || null };
 }
 
 /**
@@ -190,6 +182,6 @@ export async function executeCode(
     }
   }
 
-  // Fall back to Piston API (deployed / no Docker)
-  return await executeViaPiston(code, input, timeoutMs);
+  // Fall back to Wandbox API (deployed / no Docker)
+  return await executeViaWandbox(code, input, timeoutMs);
 }
