@@ -36,6 +36,16 @@ function addStatus(msg, type = "") {
   statusBox.appendChild(line);
   statusBox.scrollTop = statusBox.scrollHeight;
 
+  // Check for sync start BEFORE the syncActive guard
+  if (msg === "Starting sync..." || msg.includes("Starting sync")) {
+    scrapedTotal = 0;
+    uploadedTotal = 0;
+    skippedTotal = 0;
+    syncActive = true;
+    updateCounters();
+    return;
+  }
+
   // Only count messages during active sync
   if (!syncActive) return;
 
@@ -134,6 +144,14 @@ document.querySelectorAll(".login-btn").forEach(btn => {
   btn.addEventListener("click", async () => {
     const platform = btn.dataset.login;
     const platformName = btn.parentElement.parentElement.querySelector("label").textContent;
+    const handleInput = document.querySelector(`input[data-platform="${platform}"]`);
+    const handle = handleInput ? handleInput.value.trim() : "";
+
+    if (!handle) {
+      addStatus(`[${platformName}] Enter your handle first.`, "error");
+      return;
+    }
+
     btn.textContent = "Opening...";
     btn.disabled = true;
     const result = await window.codeon.login({ platform });
