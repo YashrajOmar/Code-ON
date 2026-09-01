@@ -166,84 +166,158 @@ const PLATFORMS = {
       await page.goto(`https://leetcode.com/`, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
       await page.waitForTimeout(2000);
 
-      // Use Playwright's request API (shares cookies with browser context)
-      sendStatus(`[LeetCode] Fetching submissions via API...`);
+      // Step 1: Get ALL solved problems via userProfileQuestions (paginated)
+      sendStatus(`[LeetCode] Fetching ALL solved problems...`);
 
-      // Step 1: Get recent AC submissions
-      const subResponse = await page.request.post("https://leetcode.com/graphql", {
-        data: {
-          query: `
-            query recentSubmissionList($username: String!, $limit: Int) {
-              recentSubmissionList(username: $username, limit: $limit) {
-                id
-                title
-                titleSlug
-                timestamp
-                lang
-                statusDisplay
+      const allSolved = [];
+      let skip = 0;
+      const pageSize = 50;
+
+      while (true) {
+        sendStatus(`[LeetCode] Fetching solved problems page ${Math.floor(skip / pageSize) + 1}...`);
+
+        const response = await page.request.post("https://leetcode.com/graphql", {
+          data: {
+            query: `
+              query userProfileQuestions($status: StatusFilterEnum!, $skip: Int!, $first: Int!, $sortField: SortFieldEnum!, $sortOrder: SortingOrderEnum!, $keyword: String) {
+                userProfileQuestions(status: $status, skip: $skip, first: $first, sortField: $sortField, sortOrder: $sortOrder, keyword: $keyword) {
+                  totalNum
+                  questions { title titleSlug difficulty topicTags { name } }
+                }
+              }
+            `,
+            variables: { status: "ACCEPTED", skip, first: pageSize, sortField: "LAST_SUBMITTED", sortOrder: "DESCENDING", keyword: "" },
+          },
+        }).catch(() => null);
+
+        if (!response || !response.ok()) {
+          sendStatus(`[LeetCode] API request failed. Try logging in again.`);
+          return [];
+        }
+
+        const data = await response.json();
+        const result = data?.data?.userProfileQuestions;
+
+        if (!result || !result.questions || result.questions.length === 0) {
+          if (allSolved.length === 0) {
+            sendStatus(`[LeetCode] userProfileQuestions returned 0. Trying recentSubmissionList...`);
+            const fallbackRes = await page.request.post("https://leetcode.com/graphql", {
+              data: {
+                query: `query recentSubmissionList($username: String!, $limit: Int) { recentSubmissionList(username: $username, limit: $limit) { id title titleSlug timestamp lang statusDisplay } }`,
+                variables: { username: handle, limit: 100 },
+              },
+            }).catch(() => null);
+
+            if (fallbackRes && fallbackRes.ok()) {
+              const fallbackData = await fallbackRes.json();
+              const subs = fallbackData?.data?.recentSubmissionList || [];
+              for (const sub of subs) {
+                if (sub.statusDisplay === "Accepted") {
+                  allSolved.push({ title: sub.title, titleSlug: sub.titleSlug, tags: [], submissionId: sub.id });
+                }
               }
             }
-          `,
-          variables: { username: handle, limit: 100 },
-        },
-      }).catch(() => null);
+          }
+          break;
+        }
 
-      if (!subResponse || !subResponse.ok()) {
-        sendStatus(`[LeetCode] API request failed. Try logging in again.`);
+        for (const q of result.questions) {
+          allSolved.push({ title: q.title, titleSlug: q.titleSlug, tags: (q.topicTags || []).map(t => t.name) });
+        }
+
+        sendStatus(`[LeetCode] Found ${allSolved.length} solved problems so far...`);
+        if (result.questions.length < pageSize) break;
+        skip += pageSize;
+        await page.waitForTimeout(500);
+      }
+
+      sendStatus(`[LeetCode] Total: ${allSolved.length} solved problems. Now fetching code...`);
+
+      if (allSolved.length === 0) {
+        sendStatus(`[LeetCode] No solved problems found. Try logging in again.`);
         return [];
       }
 
-      const subData = await subResponse.json();
-      const subs = subData?.data?.recentSubmissionList || [];
-      const acSubs = subs.filter(s => s.statusDisplay === "Accepted");
-
-      sendStatus(`[LeetCode] Found ${acSubs.length} AC submissions. Fetching code for each...`);
-
-      if (acSubs.length === 0) {
-        sendStatus(`[LeetCode] No AC submissions found. Try logging in again.`);
-        return [];
-      }
-
-      // Step 2: For each AC submission, fetch code via submissionDetail
-      const limit = Math.min(acSubs.length, targetCount);
+      // Step 2: For each solved problem, get the latest AC submission ID + code
+      const limit = Math.min(allSolved.length, targetCount);
 
       for (let i = 0; i < limit; i++) {
-        const sub = acSubs[i];
-        sendStatus(`[LeetCode] Scraping ${i + 1}/${limit}: ${sub.title}`);
+        const prob = allSolved[i];
+        const slug = prob.titleSlug;
+        sendStatus(`[LeetCode] Scraping ${i + 1}/${limit}: ${prob.title}`);
 
         try {
-          const detailResponse = await page.request.post("https://leetcode.com/graphql", {
+          let subId = prob.submissionId || null;
+
+          // If no submissionId, get it from submissionList API
+          if (!subId) {
+            const subListRes = await page.request.post("https://leetcode.com/graphql", {
+              data: {
+                query: `query submissionList($questionSlug: String!, $offset: Int, $limit: Int, $status: SubmissionStatusEnum) { submissionList(questionSlug: $questionSlug, offset: $offset, limit: $limit, status: $status) { submissions { id statusDisplay lang } } }`,
+                variables: { questionSlug: slug, offset: 0, limit: 1, status: "AC" },
+              },
+            }).catch(() => null);
+
+            if (subListRes && subListRes.ok()) {
+              const subListData = await subListRes.json();
+              const submissions = subListData?.data?.submissionList?.submissions || [];
+              if (submissions.length > 0) subId = submissions[0].id;
+            }
+          }
+
+          if (!subId) {
+            sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (no submission ID)`);
+            await page.waitForTimeout(500);
+            continue;
+          }
+
+          // Get the actual code via submissionDetail
+          const detailRes = await page.request.post("https://leetcode.com/graphql", {
             data: {
-              query: `
-                query submissionDetail($id: ID!) {
-                  submissionDetail(submissionId: $id) {
-                    code
-                    lang
-                    statusDisplay
-                  }
-                }
-              `,
-              variables: { id: sub.id },
+              query: `query submissionDetail($id: ID!) { submissionDetail(submissionId: $id) { code lang statusDisplay } }`,
+              variables: { id: String(subId) },
             },
           }).catch(() => null);
 
-          if (detailResponse && detailResponse.ok()) {
-            const detailData = await detailResponse.json();
+          if (detailRes && detailRes.ok()) {
+            const detailData = await detailRes.json();
             const detail = detailData?.data?.submissionDetail;
 
             if (detail && detail.code && detail.code.trim().length > 20) {
-              solutions.push({
-                code: detail.code.trim(),
-                problemTitle: sub.title,
-                platform: "leetcode",
-                tags: [],
-              });
-              sendStatus(`[LeetCode] Scraped ${i + 1}/${limit}: ${sub.title} ✓`);
+              solutions.push({ code: detail.code.trim(), problemTitle: prob.title, platform: "leetcode", tags: prob.tags || [] });
+              sendStatus(`[LeetCode] Scraped ${i + 1}/${limit}: ${prob.title} ✓`);
             } else {
-              sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (no code)`);
+              sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (no code in response)`);
             }
           } else {
-            sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (API error)`);
+            // Fallback: visit the submission page directly and scrape code from DOM
+            sendStatus(`[LeetCode] Trying page scrape for ${prob.title}...`);
+            await page.goto(`https://leetcode.com/problems/${slug}/submissions/`, { waitUntil: "networkidle", timeout: 15000 }).catch(() => {});
+            await page.waitForTimeout(3000);
+
+            const subLink = await page.evaluate(() => {
+              const links = Array.from(document.querySelectorAll('a'));
+              for (const link of links) {
+                const href = link.getAttribute('href') || '';
+                if (href.match(/\/submissions\/\d+/)) return href.startsWith('http') ? href : `https://leetcode.com${href}`;
+              }
+              return null;
+            }).catch(() => null);
+
+            if (subLink) {
+              await page.goto(subLink, { waitUntil: "networkidle", timeout: 15000 }).catch(() => {});
+              await page.waitForTimeout(2000);
+
+              let code = await page.locator("pre code, .monaco-editor .view-line, pre").first().textContent({ timeout: 5000 }).catch(() => null);
+              if (code && code.trim().length > 20) {
+                solutions.push({ code: code.trim(), problemTitle: prob.title, platform: "leetcode", tags: prob.tags || [] });
+                sendStatus(`[LeetCode] Scraped ${i + 1}/${limit}: ${prob.title} ✓ (page scrape)`);
+              } else {
+                sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (no code on page)`);
+              }
+            } else {
+              sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (no submission link)`);
+            }
           }
 
           await page.waitForTimeout(500);

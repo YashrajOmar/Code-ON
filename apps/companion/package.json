@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "@codeon/companion",
   "version": "0.1.0",
   "description": "CodeOn Companion — auto-syncs your CF/LC submissions to train your AI mentor",
@@ -35,5 +35,9 @@
   },
   "dependencies": {
     "playwright": "^1.62.0"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
   }
 }
