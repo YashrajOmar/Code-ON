@@ -99,11 +99,7 @@ async function checkConnection() {
     Object.entries(settings.handles).forEach(([platform, handle]) => {
       const input = document.querySelector(`input[data-platform="${platform}"]`);
       if (input) input.value = handle;
-      const loginBtn = document.querySelector(`button[data-login="${platform}"]`);
-      if (loginBtn && handle) {
-        loginBtn.classList.add("logged-in");
-        loginBtn.textContent = "Logged In";
-      }
+      // Don't mark as logged in just because handle exists — only after actual login
     });
   }
   await checkConnection();

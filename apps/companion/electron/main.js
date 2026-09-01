@@ -161,119 +161,94 @@ const PLATFORMS = {
     // Custom scraper for LeetCode
     scrape: async (page, handle, lastSync, targetCount, sendStatus) => {
       const solutions = [];
-      const seen = new Set();
 
       sendStatus(`[LeetCode] Loading LeetCode for ${handle}...`);
-      await page.goto(`https://leetcode.com/`, { waitUntil: "networkidle", timeout: 20000 }).catch(() => {});
+      await page.goto(`https://leetcode.com/`, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
       await page.waitForTimeout(2000);
 
-      // Use LeetCode GraphQL API to get ALL solved problems for the user
-      sendStatus(`[LeetCode] Fetching solved problems via API...`);
+      // Use Playwright's request API (shares cookies with browser context)
+      sendStatus(`[LeetCode] Fetching submissions via API...`);
 
-      const solvedProblems = await page.evaluate(async (username) => {
-        // Use recentSubmissionList — this returns ALL recent submissions (not just 20)
-        // and works with login session cookies
-        const allSubs = [];
-        const limit = 1000;
+      // Step 1: Get recent AC submissions
+      const subResponse = await page.request.post("https://leetcode.com/graphql", {
+        data: {
+          query: `
+            query recentSubmissionList($username: String!, $limit: Int) {
+              recentSubmissionList(username: $username, limit: $limit) {
+                id
+                title
+                titleSlug
+                timestamp
+                lang
+                statusDisplay
+              }
+            }
+          `,
+          variables: { username: handle, limit: 100 },
+        },
+      }).catch(() => null);
+
+      if (!subResponse || !subResponse.ok()) {
+        sendStatus(`[LeetCode] API request failed. Try logging in again.`);
+        return [];
+      }
+
+      const subData = await subResponse.json();
+      const subs = subData?.data?.recentSubmissionList || [];
+      const acSubs = subs.filter(s => s.statusDisplay === "Accepted");
+
+      sendStatus(`[LeetCode] Found ${acSubs.length} AC submissions. Fetching code for each...`);
+
+      if (acSubs.length === 0) {
+        sendStatus(`[LeetCode] No AC submissions found. Try logging in again.`);
+        return [];
+      }
+
+      // Step 2: For each AC submission, fetch code via submissionDetail
+      const limit = Math.min(acSubs.length, targetCount);
+
+      for (let i = 0; i < limit; i++) {
+        const sub = acSubs[i];
+        sendStatus(`[LeetCode] Scraping ${i + 1}/${limit}: ${sub.title}`);
 
         try {
-          const res = await fetch("https://leetcode.com/graphql", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
+          const detailResponse = await page.request.post("https://leetcode.com/graphql", {
+            data: {
               query: `
-                query recentSubmissionList($username: String!, $limit: Int) {
-                  recentSubmissionList(username: $username, limit: $limit) {
-                    id
-                    title
-                    titleSlug
-                    timestamp
+                query submissionDetail($id: ID!) {
+                  submissionDetail(submissionId: $id) {
+                    code
                     lang
                     statusDisplay
                   }
                 }
               `,
-              variables: { username, limit },
-            }),
-          });
-          const data = await res.json();
-          const subs = data?.data?.recentSubmissionList || [];
+              variables: { id: sub.id },
+            },
+          }).catch(() => null);
 
-          // For each AC submission, fetch the code via submissionDetail
-          for (const sub of subs) {
-            if (sub.statusDisplay !== "Accepted") continue;
+          if (detailResponse && detailResponse.ok()) {
+            const detailData = await detailResponse.json();
+            const detail = detailData?.data?.submissionDetail;
 
-            try {
-              const detailRes = await fetch("https://leetcode.com/graphql", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  query: `
-                    query submissionDetail($id: ID!) {
-                      submissionDetail(submissionId: $id) {
-                        code
-                        lang
-                        statusDisplay
-                      }
-                    }
-                  `,
-                  variables: { id: sub.id },
-                }),
+            if (detail && detail.code && detail.code.trim().length > 20) {
+              solutions.push({
+                code: detail.code.trim(),
+                problemTitle: sub.title,
+                platform: "leetcode",
+                tags: [],
               });
-              const detailData = await detailRes.json();
-              const detail = detailData?.data?.submissionDetail;
-
-              if (detail && detail.code && detail.code.trim().length > 20) {
-                allSubs.push({
-                  title: sub.title,
-                  titleSlug: sub.titleSlug,
-                  timestamp: parseInt(sub.timestamp),
-                  lang: detail.lang || sub.lang,
-                  code: detail.code,
-                });
-              }
-            } catch (e) {
-              // Skip this submission
+              sendStatus(`[LeetCode] Scraped ${i + 1}/${limit}: ${sub.title} ✓`);
+            } else {
+              sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (no code)`);
             }
+          } else {
+            sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (API error)`);
           }
+
+          await page.waitForTimeout(500);
         } catch (e) {
-          return [];
-        }
-
-        return allSubs;
-      }, handle).catch(() => []);
-
-      sendStatus(`[LeetCode] Found ${solvedProblems.length} AC submissions with code.`);
-
-      if (solvedProblems.length === 0) {
-        const currentUrl = page.url();
-        if (currentUrl.includes("login") || currentUrl.includes("accounts")) {
-          sendStatus(`[LeetCode] LOGIN EXPIRED — please click Login to re-login.`);
-          return [];
-        }
-        sendStatus(`[LeetCode] No AC submissions found. Try logging in again.`);
-        return [];
-      }
-
-      const limit = Math.min(solvedProblems.length, targetCount);
-
-      for (let i = 0; i < limit; i++) {
-        const prob = solvedProblems[i];
-        const title = prob.title;
-        const tags = [];
-
-        sendStatus(`[LeetCode] Adding ${i + 1}/${limit}: ${title}`);
-
-        if (prob.code && prob.code.trim().length > 20) {
-          solutions.push({
-            code: prob.code.trim(),
-            problemTitle: title,
-            platform: "leetcode",
-            tags,
-          });
-          sendStatus(`[LeetCode] Added ${i + 1}/${limit}: ${title} ✓`);
-        } else {
-          sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (no code)`);
+          sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (error: ${e.message})`);
         }
       }
 
@@ -341,8 +316,25 @@ let browserContext = null;
 async function killChromeAndClearLocks() {
   const { execSync } = require("child_process");
   const fs = require("fs");
-  try { execSync("taskkill /F /IM chrome.exe /T", { stdio: "ignore" }); } catch {}
-  await new Promise(r => setTimeout(r, 2000));
+  
+  // Only kill Chrome processes using OUR profile directory — don't kill user's personal Chrome
+  try {
+    // Find Chrome PIDs that use our profile directory
+    const output = execSync('wmic process where "name=\'chrome.exe\'" get processid,commandline', { encoding: 'utf-8' });
+    const lines = output.split('\n');
+    for (const line of lines) {
+      if (line.includes('.codeon') && line.includes('browser-profile')) {
+        const match = line.match(/(\d+)\s*$/);
+        if (match) {
+          try { execSync(`taskkill /F /PID ${match[1]}`, { stdio: "ignore" }); } catch {}
+        }
+      }
+    }
+  } catch {}
+  
+  await new Promise(r => setTimeout(r, 1500));
+  
+  // Clear lock files in our profile only
   const lockFiles = ["SingletonLock", "SingletonCookie", "SingletonSocket", "Default/LOCK", "Default/SingletonLock"];
   for (const lock of lockFiles) {
     try { if (fs.existsSync(path.join(PROFILE_DIR, lock))) fs.unlinkSync(path.join(PROFILE_DIR, lock)); } catch {}
