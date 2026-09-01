@@ -1,4 +1,4 @@
-packages:
+﻿packages:
   - "apps/*"
   - "packages/*"
 allowBuilds:
@@ -10,4 +10,3 @@ allowBuilds:
   protobufjs: true
   sharp: true
   unrs-resolver: true
-  msgpackr-extract: true
