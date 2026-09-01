@@ -94,7 +94,9 @@ async function checkConnection() {
 // Load saved settings
 (async () => {
   const settings = await window.codeon.getSettings();
-  codeonUrl.value = settings.codeonUrl || "https://codeon-coding-coach-eight.vercel.app";
+  const savedUrl = settings.codeonUrl || "https://codeon-coding-coach-eight.vercel.app";
+  // Don't use localhost — always default to Vercel unless user explicitly changes it
+  codeonUrl.value = savedUrl === "http://localhost:3000" ? "https://codeon-coding-coach-eight.vercel.app" : savedUrl;
   if (settings.handles) {
     Object.entries(settings.handles).forEach(([platform, handle]) => {
       const input = document.querySelector(`input[data-platform="${platform}"]`);
