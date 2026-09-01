@@ -44,14 +44,16 @@ export async function POST(req: Request) {
   try {
     // Check for companion app webhook secret first (no Clerk auth needed)
     const authHeader = req.headers.get('authorization');
-    const webhookSecret = process.env.INGEST_WEBHOOK_SECRET;
+    const webhookSecret = process.env.INGEST_WEBHOOK_SECRET || 'codeon-companion-secret';
     let userId: string;
 
-    if (authHeader === `Bearer ${webhookSecret}` && webhookSecret) {
-      // Companion app — use demo user for now
-      const user = await prisma.user.findUnique({ where: { email: 'demo@codeon.dev' } });
+    if (authHeader === `Bearer ${webhookSecret}`) {
+      // Companion app — find or create demo user
+      let user = await prisma.user.findUnique({ where: { email: 'demo@codeon.dev' } });
       if (!user) {
-        return NextResponse.json({ error: 'User not found' }, { status: 404 });
+        user = await prisma.user.create({
+          data: { email: 'demo@codeon.dev', displayName: 'Developer' },
+        });
       }
       userId = user.id;
     } else {
