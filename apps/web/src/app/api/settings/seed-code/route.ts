@@ -57,13 +57,32 @@ export async function GET() {
  */
 export async function POST(req: Request) {
   try {
-    // Check for companion app webhook secret first (no Clerk auth needed)
     const authHeader = req.headers.get('authorization');
-    const webhookSecret = process.env.INGEST_WEBHOOK_SECRET || 'codeon-companion-secret';
+    const token = authHeader ? authHeader.replace('Bearer ', '') : '';
     let userId: string;
 
-    if (authHeader === `Bearer ${webhookSecret}`) {
-      // Companion app — find or create demo user
+    // Check for companion app token (cot_xxx format)
+    if (token.startsWith('cot_')) {
+      // Look up the token in ApiKey table
+      const allTokens = await prisma.apiKey.findMany({
+        where: { provider: 'companion_token' },
+      });
+
+      let foundUserId: string | null = null;
+      for (const t of allTokens) {
+        const decrypted = decryptKey(t.encryptedKey);
+        if (decrypted === token) {
+          foundUserId = t.userId;
+          break;
+        }
+      }
+
+      if (!foundUserId) {
+        return NextResponse.json({ error: 'Invalid companion token' }, { status: 401 });
+      }
+      userId = foundUserId;
+    } else if (token === (process.env.INGEST_WEBHOOK_SECRET || 'codeon-companion-secret')) {
+      // Legacy fallback — demo user
       let user = await prisma.user.findUnique({ where: { email: 'demo@codeon.dev' } });
       if (!user) {
         user = await prisma.user.create({

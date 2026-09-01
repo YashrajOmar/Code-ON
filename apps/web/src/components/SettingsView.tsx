@@ -40,6 +40,8 @@ export default function SettingsView() {
   const [seedSaving, setSeedSaving] = useState(false);
   const [seedMsg, setSeedMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [trainedSolutions, setTrainedSolutions] = useState<Array<{ topic: string; title: string }>>([]);
+  const [companionToken, setCompanionToken] = useState<string>("");
+  const [tokenLoading, setTokenLoading] = useState(false);
   const [profiles, setProfiles] = useState<Array<{ id: string; platform: string; handle: string }>>([]);
   const [newPlatform, setNewPlatform] = useState("leetcode");
   const [newHandle, setNewHandle] = useState("");
@@ -52,6 +54,7 @@ export default function SettingsView() {
   useEffect(() => {
     fetchSettings();
     fetchTrainedSolutions();
+    fetchCompanionToken();
   }, []);
 
   async function fetchSettings() {
@@ -103,7 +106,27 @@ export default function SettingsView() {
     } catch { /* ignore */ }
   }
 
-  async function handleSaveKeys() {
+  async function fetchCompanionToken() {
+    try {
+      const res = await fetch("/api/settings/companion-token");
+      const json = await res.json();
+      if (json.hasToken && json.token) {
+        setCompanionToken(json.token);
+      }
+    } catch { /* ignore */ }
+  }
+
+  async function handleGenerateToken() {
+    setTokenLoading(true);
+    try {
+      const res = await fetch("/api/settings/companion-token", { method: "POST" });
+      const json = await res.json();
+      if (json.success && json.token) {
+        setCompanionToken(json.token);
+      }
+    } catch { /* ignore */ }
+    setTokenLoading(false);
+  }
     setIsSaving(true);
     setMessage(null);
     try {
@@ -592,6 +615,50 @@ export default function SettingsView() {
         </div>
 
         {/* Seed Code Section — Paste Your Solutions */}
+        {/* Companion Token Section */}
+        <div className="glass" style={{ borderRadius: 12, padding: 24, marginBottom: 24 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>
+            Companion App Token
+          </h2>
+          <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 20 }}>
+            Generate a token to link the CodeOn Companion desktop app to your account. Paste it into the companion app to sync your submissions.
+          </p>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              type="text"
+              value={companionToken}
+              readOnly
+              placeholder="No token generated yet"
+              onClick={(e) => (e.target as HTMLInputElement).select()}
+              style={{
+                flex: 1, padding: "10px 14px", borderRadius: 8,
+                background: "var(--surface-3)", border: "1px solid var(--border-default)",
+                color: companionToken ? "var(--brand-cyan)" : "var(--text-muted)",
+                fontSize: 13, fontFamily: "'JetBrains Mono', monospace", outline: "none", boxSizing: "border-box",
+                cursor: companionToken ? "text" : "default",
+              }}
+            />
+            <button
+              onClick={handleGenerateToken}
+              disabled={tokenLoading}
+              style={{
+                padding: "10px 18px", borderRadius: 8, border: "none",
+                background: "linear-gradient(135deg, var(--brand-emerald), #059669)",
+                color: "white", fontSize: 13, fontWeight: 600,
+                cursor: tokenLoading ? "not-allowed" : "pointer",
+                opacity: tokenLoading ? 0.6 : 1, whiteSpace: "nowrap",
+              }}
+            >
+              {tokenLoading ? "Generating…" : companionToken ? "Regenerate" : "Generate Token"}
+            </button>
+          </div>
+          {companionToken && (
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 10, lineHeight: 1.6 }}>
+              Copy this token and paste it into the CodeOn Companion desktop app. Your solutions will be linked to your account.
+            </div>
+          )}
+        </div>
+
         <div className="glass" style={{ borderRadius: 12, padding: 24, marginBottom: 24 }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>
             Train Your AI Mentor

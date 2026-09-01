@@ -122,12 +122,17 @@
     </div>
   </div>
 
-  <div class="section-title">CodeOn Server</div>
+  <div class="section-title">Companion Token</div>
   <div class="url-row">
-    <input type="text" id="codeonUrl" placeholder="http://localhost:3000" />
+    <input type="text" id="companionToken" placeholder="Paste token from Settings page (cot_xxx)" />
   </div>
 
-  <p class="note">Click Login for each platform (opens Chrome). Log in. <strong style="color:#ffb800;">Keep Chrome open!</strong> Then click Sync Now. Sync uses the same Chrome window.</p>
+  <div class="section-title">CodeOn Server</div>
+  <div class="url-row">
+    <input type="text" id="codeonUrl" placeholder="https://codeon-coding-coach-eight.vercel.app" />
+  </div>
+
+  <p class="note">Get a token from the web app Settings page. Paste it above + enter handles. Click Login (opens Chrome). <strong style="color:#ffb800;">Keep Chrome open!</strong> Click Sync Now.</p>
 
   <button class="btn btn-primary" id="syncBtn" disabled>
     <span id="syncBtnText">Sync Now</span>

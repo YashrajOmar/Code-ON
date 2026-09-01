@@ -6,6 +6,7 @@ let persistentUploaded = 0;
 let syncActive = false;
 
 const codeonUrl = document.getElementById("codeonUrl");
+const companionToken = document.getElementById("companionToken");
 const syncBtn = document.getElementById("syncBtn");
 const syncBtnText = document.getElementById("syncBtnText");
 const statusBox = document.getElementById("statusBox");
@@ -94,6 +95,7 @@ function saveSettings() {
   window.codeon.saveSettings({
     handles: getHandles(),
     codeonUrl: codeonUrl.value.trim() || "https://codeon-coding-coach-eight.vercel.app",
+    companionToken: companionToken.value.trim(),
   });
 }
 
@@ -123,6 +125,7 @@ async function checkConnection() {
   const settings = await window.codeon.getSettings();
   const savedUrl = settings.codeonUrl || "https://codeon-coding-coach-eight.vercel.app";
   codeonUrl.value = savedUrl === "http://localhost:3000" ? "https://codeon-coding-coach-eight.vercel.app" : savedUrl;
+  if (settings.companionToken) companionToken.value = settings.companionToken;
   if (settings.handles) {
     Object.entries(settings.handles).forEach(([platform, handle]) => {
       const input = document.querySelector(`input[data-platform="${platform}"]`);
@@ -138,6 +141,7 @@ document.querySelectorAll("input[data-platform]").forEach(input => {
   input.addEventListener("change", saveSettings);
 });
 codeonUrl.addEventListener("change", () => { saveSettings(); checkConnection(); });
+companionToken.addEventListener("change", saveSettings);
 
 // Login buttons — opens new tab in existing Chrome, doesn't close it
 document.querySelectorAll(".login-btn").forEach(btn => {
@@ -185,6 +189,7 @@ async function doSync() {
     const result = await window.codeon.sync({
       handles,
       codeonUrl: codeonUrl.value.trim() || "https://codeon-coding-coach-eight.vercel.app",
+      companionToken: companionToken.value.trim(),
     });
 
     syncActive = false;

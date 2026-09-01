@@ -102,7 +102,7 @@ function loadSettings() {
   try {
     if (existsSync(SETTINGS_FILE)) return JSON.parse(readFileSync(SETTINGS_FILE, "utf-8"));
   } catch {}
-  return { handles: {}, codeonUrl: "https://codeon-coding-coach-eight.vercel.app" };
+  return { handles: {}, codeonUrl: "https://codeon-coding-coach-eight.vercel.app", companionToken: "" };
 }
 
 function saveSettings(settings) {
@@ -446,9 +446,10 @@ ipcMain.handle("checkConnection", async (_, { codeonUrl }) => {
   }
 });
 
-ipcMain.handle("sync", async (_, { handles, codeonUrl }) => {
+ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken }) => {
   const state = loadState();
   const results = { total: 0, perPlatform: {}, errors: [] };
+  const authToken = companionToken || "codeon-companion-secret";
 
   try {
     const browser = await getBrowser(true); // visible Chrome for sync — don't close it during sync
@@ -477,7 +478,7 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl }) => {
           if (solutions.length > 0) {
             mainWindow.webContents.send("status", `[${p.name}] Uploading ${solutions.length} solutions...`);
             try {
-              const webhookSecret = "codeon-companion-secret";
+            const webhookSecret = authToken;
               const res = await fetch(`${codeonUrl}/api/settings/seed-code`, {
                 method: "POST",
                 headers: {
@@ -639,7 +640,7 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl }) => {
         if (solutions.length > 0) {
           mainWindow.webContents.send("status", `Uploading ${solutions.length} ${p.name} solutions...`);
           try {
-            const webhookSecret = "codeon-companion-secret";
+            const webhookSecret = authToken;
             mainWindow.webContents.send("status", `Uploading to ${codeonUrl}/api/settings/seed-code...`);
             const res = await fetch(`${codeonUrl}/api/settings/seed-code`, {
               method: "POST",
