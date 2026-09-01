@@ -370,7 +370,7 @@ async function killChromeAndClearLocks() {
   }
 }
 
-async function getBrowser(visible = false) {
+async function getBrowser() {
   if (browserContext) {
     try {
       await browserContext.pages();
@@ -385,20 +385,13 @@ async function getBrowser(visible = false) {
   
   await killChromeAndClearLocks();
   
-  const args = ["--disable-blink-features=AutomationControlled"];
-  if (visible) {
-    // Login mode — visible to user
-    args.push("--start-maximized");
-  } else {
-    // Sync mode — off-screen, but real headed browser (Cloudflare passes)
-    args.push("--window-position=-32000,-32000", "--window-size=1280,800");
-  }
+  const args = ["--disable-blink-features=AutomationControlled", "--start-maximized"];
   
   try {
     browserContext = await chromium.launchPersistentContext(PROFILE_DIR, {
       headless: false,
       channel: "chrome",
-      viewport: visible ? null : { width: 1280, height: 800 },
+      viewport: null,
       args,
       ignoreDefaultArgs: ["--enable-automation"],
     });
@@ -421,17 +414,13 @@ ipcMain.handle("login", async (_, { platform }) => {
     const p = PLATFORMS[platform];
     if (!p) return { success: false, error: "Unknown platform" };
 
-    // For login: close any off-screen browser, launch visible one
-    if (browserContext) {
-      try { await browserContext.close(); } catch {}
-      browserContext = null;
-    }
-
-    const browser = await getBrowser(true); // visible for login
+    // Don't close existing browser — just open a new tab in it
+    // This way sync continues running while user logs in
+    const browser = await getBrowser();
     const page = await browser.newPage();
     await page.goto(p.loginUrl, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
 
-    mainWindow.webContents.send("status", `[${p.name}] Chrome opened (visible). Log in, then close the tab.`);
+    mainWindow.webContents.send("status", `[${p.name}] New tab opened. Log in, then close the tab. Sync continues in background.`);
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
@@ -440,8 +429,18 @@ ipcMain.handle("login", async (_, { platform }) => {
 
 ipcMain.handle("checkConnection", async (_, { codeonUrl }) => {
   try {
-    const res = await fetch(`${codeonUrl}/api/settings`, { signal: AbortSignal.timeout(5000) });
-    return { connected: res.ok };
+    const res = await fetch(`${codeonUrl}/api/settings/seed-code`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer codeon-companion-secret",
+      },
+      body: JSON.stringify({ solutions: [] }),
+      signal: AbortSignal.timeout(5000),
+    });
+    // 400 = server is running (bad request because empty solutions)
+    // 200 = server is running (shouldn't happen with empty, but just in case)
+    return { connected: res.ok || res.status === 400 };
   } catch {
     return { connected: false };
   }

@@ -2,6 +2,8 @@ let syncing = false;
 let scrapedTotal = 0;
 let uploadedTotal = 0;
 let skippedTotal = 0;
+let persistentUploaded = 0;
+let syncActive = false;
 
 const codeonUrl = document.getElementById("codeonUrl");
 const syncBtn = document.getElementById("syncBtn");
@@ -13,10 +15,18 @@ const scrapedCountEl = document.getElementById("scrapedCount");
 const uploadedCountEl = document.getElementById("uploadedCount");
 const failedCountEl = document.getElementById("failedCount");
 
+// Load persistent uploaded count from localStorage
+try {
+  persistentUploaded = parseInt(localStorage.getItem("codeon_total_uploaded") || "0");
+} catch {}
+const totalUploadedEl = document.getElementById("totalUploaded");
+if (totalUploadedEl) totalUploadedEl.textContent = persistentUploaded;
+
 function updateCounters() {
   if (scrapedCountEl) scrapedCountEl.textContent = scrapedTotal;
   if (uploadedCountEl) uploadedCountEl.textContent = uploadedTotal;
   if (failedCountEl) failedCountEl.textContent = skippedTotal;
+  if (totalUploadedEl) totalUploadedEl.textContent = persistentUploaded;
 }
 
 function addStatus(msg, type = "") {
@@ -26,29 +36,36 @@ function addStatus(msg, type = "") {
   statusBox.appendChild(line);
   statusBox.scrollTop = statusBox.scrollHeight;
 
-  // Parse status to update counters
+  // Only count messages during active sync
+  if (!syncActive) return;
+
   if (msg.includes("Scraped ") && msg.includes("✓")) {
     scrapedTotal++;
     updateCounters();
   } else if (msg.includes("Skipped ")) {
     skippedTotal++;
     updateCounters();
-  } else if (msg.includes("solutions uploaded")) {
+  } else if (msg.includes("solutions uploaded") && msg.includes("✓")) {
     const match = msg.match(/(\d+) solutions uploaded/);
     if (match) {
       uploadedTotal += parseInt(match[1]);
+      persistentUploaded += parseInt(match[1]);
+      try { localStorage.setItem("codeon_total_uploaded", String(persistentUploaded)); } catch {}
       updateCounters();
     }
-  } else if (msg.includes("Uploaded ") && msg.includes("solution")) {
+  } else if (msg.includes("Uploaded ") && msg.includes("solution") && msg.includes("total")) {
     const match = msg.match(/Uploaded (\d+) solution/);
     if (match) {
       uploadedTotal += parseInt(match[1]);
+      persistentUploaded += parseInt(match[1]);
+      try { localStorage.setItem("codeon_total_uploaded", String(persistentUploaded)); } catch {}
       updateCounters();
     }
   } else if (msg === "Starting sync...") {
     scrapedTotal = 0;
     uploadedTotal = 0;
     skippedTotal = 0;
+    syncActive = true;
     updateCounters();
   }
 }
@@ -95,13 +112,11 @@ async function checkConnection() {
 (async () => {
   const settings = await window.codeon.getSettings();
   const savedUrl = settings.codeonUrl || "https://codeon-coding-coach-eight.vercel.app";
-  // Don't use localhost — always default to Vercel unless user explicitly changes it
   codeonUrl.value = savedUrl === "http://localhost:3000" ? "https://codeon-coding-coach-eight.vercel.app" : savedUrl;
   if (settings.handles) {
     Object.entries(settings.handles).forEach(([platform, handle]) => {
       const input = document.querySelector(`input[data-platform="${platform}"]`);
       if (input) input.value = handle;
-      // Don't mark as logged in just because handle exists — only after actual login
     });
   }
   await checkConnection();
@@ -114,6 +129,7 @@ document.querySelectorAll("input[data-platform]").forEach(input => {
 });
 codeonUrl.addEventListener("change", () => { saveSettings(); checkConnection(); });
 
+// Login buttons — opens new tab in existing Chrome, doesn't close it
 document.querySelectorAll(".login-btn").forEach(btn => {
   btn.addEventListener("click", async () => {
     const platform = btn.dataset.login;
@@ -126,7 +142,7 @@ document.querySelectorAll(".login-btn").forEach(btn => {
     if (result.success) {
       btn.classList.add("logged-in");
       btn.textContent = "Logged In";
-      addStatus(`[${platformName}] Chrome opened. Log in, then close the tab.`, "info");
+      addStatus(`[${platformName}] New tab opened. Log in, then close the tab.`, "info");
     } else {
       addStatus(`[${platformName}] Login failed: ${result.error}`, "error");
     }
@@ -142,6 +158,7 @@ async function doSync() {
   }
 
   syncing = true;
+  syncActive = false;
   syncBtn.disabled = true;
   syncBtnText.innerHTML = '<span class="spinner"></span> Syncing...';
   addStatus("Starting sync...", "info");
@@ -151,6 +168,8 @@ async function doSync() {
       handles,
       codeonUrl: codeonUrl.value.trim() || "https://codeon-coding-coach-eight.vercel.app",
     });
+
+    syncActive = false;
 
     if (result.status === "done") {
       addStatus(`Sync complete! Uploaded ${result.total} solution(s) total.`, "success");
@@ -179,6 +198,7 @@ async function doSync() {
     addStatus(`Sync failed: ${e.message}`, "error");
   } finally {
     syncing = false;
+    syncActive = false;
     syncBtn.disabled = false;
     syncBtnText.textContent = "Sync Now";
   }
