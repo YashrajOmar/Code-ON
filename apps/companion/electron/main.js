@@ -171,118 +171,38 @@ const PLATFORMS = {
       sendStatus(`[LeetCode] Fetching solved problems via API...`);
 
       const solvedProblems = await page.evaluate(async (username) => {
-        // Get all problems the user has solved (AC)
-        const query = `
-          query userProfileQuestions($status: StatusFilterEnum!, $skip: Int!, $first: Int!, $sortField: SortFieldEnum!, $sortOrder: SortingOrderEnum!, $keyword: String) {
-            userProfileQuestions(status: $status, skip: $skip, first: $first, sortField: $sortField, sortOrder: $sortOrder, keyword: $keyword) {
-              totalNum
-              questions {
-                translatedTitle
-                frontendQuestionId: questionFrontendId
-                title
-                titleSlug
-                status
-                difficulty
-                topicTags { name translatedName }
-              }
-            }
-          }
-        `;
-
-        const allProblems = [];
-        let skip = 0;
-        const pageSize = 100;
-
-        while (true) {
-          try {
-            const res = await fetch("https://leetcode.com/graphql", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                query,
-                variables: {
-                  status: "ACCEPTED",
-                  skip: skip,
-                  first: pageSize,
-                  sortField: "LAST_SUBMITTED",
-                  sortOrder: "DESCENDING",
-                  keyword: "",
-                },
-              }),
-            });
-            const data = await res.json();
-            const questions = data?.data?.userProfileQuestions;
-            if (!questions || !questions.questions || questions.questions.length === 0) break;
-
-            for (const q of questions.questions) {
-              allProblems.push({
-                title: q.title,
-                titleSlug: q.titleSlug,
-                difficulty: q.difficulty,
-                tags: (q.topicTags || []).map(t => t.name),
-              });
-            }
-
-            if (questions.questions.length < pageSize) break;
-            skip += pageSize;
-          } catch (e) {
-            break;
-          }
-        }
-
-        return allProblems;
-      }, handle).catch(() => []);
-
-      sendStatus(`[LeetCode] Found ${solvedProblems.length} solved problems. Fetching code for each...`);
-
-      if (solvedProblems.length === 0) {
-        const currentUrl = page.url();
-        if (currentUrl.includes("login") || currentUrl.includes("accounts")) {
-          sendStatus(`[LeetCode] LOGIN EXPIRED — please click Login to re-login.`);
-          return [];
-        }
-        sendStatus(`[LeetCode] No solved problems found. Try logging in again.`);
-        return [];
-      }
-
-      const limit = Math.min(solvedProblems.length, targetCount);
-
-      for (let i = 0; i < limit; i++) {
-        const prob = solvedProblems[i];
-        const slug = prob.titleSlug;
-        const title = prob.title;
-        const tags = prob.tags || [];
-
-        sendStatus(`[LeetCode] Scraping ${i + 1}/${limit}: ${title}`);
+        // Use recentSubmissionList — this returns ALL recent submissions (not just 20)
+        // and works with login session cookies
+        const allSubs = [];
+        const limit = 1000;
 
         try {
-          // Fetch code via GraphQL — get latest AC submission ID, then get code
-          const codeResult = await page.evaluate(async (slug) => {
-            // Step 1: Get latest AC submission ID for this problem
-            let subId = null;
-            try {
-              const subRes = await fetch("https://leetcode.com/graphql", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  query: `
-                    query questionSubmissionList($questionSlug: String!, $offset: Int, $limit: Int, $status: SubmissionStatusEnum) {
-                      submissionList(questionSlug: $questionSlug, offset: $offset, limit: $limit, status: $status) {
-                        submissions { id statusDisplay lang }
-                      }
-                    }
-                  `,
-                  variables: { questionSlug: slug, offset: 0, limit: 1, status: "AC" },
-                }),
-              });
-              const subData = await subRes.json();
-              const subs = subData?.data?.submissionList?.submissions || [];
-              if (subs.length > 0) subId = subs[0].id;
-            } catch (e) {}
+          const res = await fetch("https://leetcode.com/graphql", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              query: `
+                query recentSubmissionList($username: String!, $limit: Int) {
+                  recentSubmissionList(username: $username, limit: $limit) {
+                    id
+                    title
+                    titleSlug
+                    timestamp
+                    lang
+                    statusDisplay
+                  }
+                }
+              `,
+              variables: { username, limit },
+            }),
+          });
+          const data = await res.json();
+          const subs = data?.data?.recentSubmissionList || [];
 
-            if (!subId) return null;
+          // For each AC submission, fetch the code via submissionDetail
+          for (const sub of subs) {
+            if (sub.statusDisplay !== "Accepted") continue;
 
-            // Step 2: Get the submission code
             try {
               const detailRes = await fetch("https://leetcode.com/graphql", {
                 method: "POST",
@@ -297,33 +217,63 @@ const PLATFORMS = {
                       }
                     }
                   `,
-                  variables: { id: subId },
+                  variables: { id: sub.id },
                 }),
               });
               const detailData = await detailRes.json();
               const detail = detailData?.data?.submissionDetail;
+
               if (detail && detail.code && detail.code.trim().length > 20) {
-                return { code: detail.code.trim(), lang: detail.lang };
+                allSubs.push({
+                  title: sub.title,
+                  titleSlug: sub.titleSlug,
+                  timestamp: parseInt(sub.timestamp),
+                  lang: detail.lang || sub.lang,
+                  code: detail.code,
+                });
               }
-            } catch (e) {}
-            return null;
-          }, slug).catch(() => null);
-
-          if (codeResult && codeResult.code) {
-            solutions.push({
-              code: codeResult.code,
-              problemTitle: title,
-              platform: "leetcode",
-              tags,
-            });
-            sendStatus(`[LeetCode] Scraped ${i + 1}/${limit}: ${title} ✓`);
-          } else {
-            sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (no code)`);
+            } catch (e) {
+              // Skip this submission
+            }
           }
-
-          await page.waitForTimeout(800);
         } catch (e) {
-          sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (error: ${e.message})`);
+          return [];
+        }
+
+        return allSubs;
+      }, handle).catch(() => []);
+
+      sendStatus(`[LeetCode] Found ${solvedProblems.length} AC submissions with code.`);
+
+      if (solvedProblems.length === 0) {
+        const currentUrl = page.url();
+        if (currentUrl.includes("login") || currentUrl.includes("accounts")) {
+          sendStatus(`[LeetCode] LOGIN EXPIRED — please click Login to re-login.`);
+          return [];
+        }
+        sendStatus(`[LeetCode] No AC submissions found. Try logging in again.`);
+        return [];
+      }
+
+      const limit = Math.min(solvedProblems.length, targetCount);
+
+      for (let i = 0; i < limit; i++) {
+        const prob = solvedProblems[i];
+        const title = prob.title;
+        const tags = [];
+
+        sendStatus(`[LeetCode] Adding ${i + 1}/${limit}: ${title}`);
+
+        if (prob.code && prob.code.trim().length > 20) {
+          solutions.push({
+            code: prob.code.trim(),
+            problemTitle: title,
+            platform: "leetcode",
+            tags,
+          });
+          sendStatus(`[LeetCode] Added ${i + 1}/${limit}: ${title} ✓`);
+        } else {
+          sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (no code)`);
         }
       }
 
@@ -481,7 +431,7 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl }) => {
   const results = { total: 0, perPlatform: {}, errors: [] };
 
   try {
-    const browser = await getBrowser(false); // off-screen for sync
+    const browser = await getBrowser(true); // visible Chrome for sync — don't close it during sync
     const page = await browser.newPage();
 
     for (const [platform, handle] of Object.entries(handles)) {
