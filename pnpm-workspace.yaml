@@ -1,7 +1,6 @@
 ﻿packages:
   - "apps/web"
   - "packages/*"
-  - "apps/companion"
 allowBuilds:
   '@google/genai': true
   '@prisma/client': true
