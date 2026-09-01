@@ -391,14 +391,14 @@ async function killChromeAndClearLocks() {
   const { execSync } = require("child_process");
   const fs = require("fs");
   
-  // Only kill Chrome processes using OUR profile directory — don't kill user's personal Chrome
+  // Only kill Chrome processes using OUR profile — don't kill user's personal Chrome
   try {
-    // Find Chrome PIDs that use our profile directory
-    const output = execSync('wmic process where "name=\'chrome.exe\'" get processid,commandline', { encoding: 'utf-8' });
+    // Use PowerShell instead of wmic (not available on all Windows versions)
+    const output = execSync('powershell -Command "Get-CimInstance Win32_Process -Filter \\"Name=\'chrome.exe\'\\" | Select-Object ProcessId,CommandLine | Format-Table -AutoSize | Out-String"', { encoding: 'utf-8', timeout: 5000 });
     const lines = output.split('\n');
     for (const line of lines) {
       if (line.includes('.codeon') && line.includes('browser-profile')) {
-        const match = line.match(/(\d+)\s*$/);
+        const match = line.match(/(\d+)/);
         if (match) {
           try { execSync(`taskkill /F /PID ${match[1]}`, { stdio: "ignore" }); } catch {}
         }
