@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { encryptKey, decryptKey } from '@/lib/crypto';
 import { embedText, toVectorLiteral } from '@/lib/embeddings';
 import { getAuthUser, unauthorized } from '@/lib/auth';
 import { rateLimit, RATE_LIMITS, tooManyRequests } from '@/lib/rate-limit';
@@ -10,9 +11,6 @@ import { rateLimit, RATE_LIMITS, tooManyRequests } from '@/lib/rate-limit';
  */
 export async function GET() {
   try {
-    const authHeader = undefined;
-    const webhookSecret = process.env.INGEST_WEBHOOK_SECRET || 'codeon-companion-secret';
-
     // Allow companion app to fetch count via webhook secret
     const authUser = await getAuthUser();
     let userId: string;
