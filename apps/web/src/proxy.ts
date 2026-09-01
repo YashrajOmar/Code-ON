@@ -7,6 +7,7 @@ const isPublicRoute = createRouteMatcher([
   "/api/webhooks/(.*)",
   "/api/companion",
   "/api/settings/seed-code",
+  "/api/settings/companion-token",
 ]);
 
 const handler = clerkMiddleware(async (auth, req) => {
