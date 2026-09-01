@@ -175,13 +175,13 @@ const PLATFORMS = {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              query: 'query allQuestionsRaw { allQuestionsRaw { title titleSlug difficulty status topicTags { name } } }',
+              query: 'query allQuestionsRaw { allQuestionsRaw { title titleSlug difficulty status } }',
             }),
           });
           const data = await res.json();
           const all = data?.data?.allQuestionsRaw || [];
           const solved = all.filter(q => q.status === 'ac');
-          return solved.map(q => ({ title: q.title, titleSlug: q.titleSlug, tags: (q.topicTags || []).map(t => t.name) }));
+          return solved.map(q => ({ title: q.title, titleSlug: q.titleSlug, tags: [] }));
         } catch (e) {
           return [];
         }
