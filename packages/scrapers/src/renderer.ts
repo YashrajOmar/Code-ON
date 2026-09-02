@@ -1,4 +1,4 @@
-import { chromium, Browser, BrowserContext } from 'playwright';
+import type { Browser, BrowserContext } from 'playwright';
 import dns from 'dns/promises';
 import { ScraperError } from './types';
 
@@ -23,6 +23,7 @@ let browserPromise: Promise<Browser> | null = null;
 
 async function getBrowser() {
   if (!browserPromise) {
+    const { chromium } = await import('playwright');
     browserPromise = chromium.launch({
       headless: true,
       args: [
