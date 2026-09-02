@@ -34,6 +34,11 @@ export class ProblemScraperService implements ProblemCachePort {
         return null;
       }
 
+      // Skip cache if editorial is missing (stale scrape from before Jina editorial fix)
+      if (!validated.content?.editorialMarkdown || validated.content.editorialMarkdown.trim().length < 10) {
+        return null;
+      }
+
       return validated;
     } catch (e) {
       console.warn(`[ProblemScraperService] Cache validation failed for ${url}`, e);

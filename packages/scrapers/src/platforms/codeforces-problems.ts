@@ -272,19 +272,24 @@ export class CodeforcesProblemScraper implements IProblemScraper {
               .slice(0, 2);
 
             for (const sub of acSubs) {
-              await sleep(1000); // Rate limit protection
+              await sleep(1000);
               const subUrl = `https://codeforces.com/contest/${parsed.contestId}/submission/${sub.id}`;
-              const subPageRes = await fetch(subUrl);
+              let subHtml = '';
+              let subPageRes = await fetch(subUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
               if (subPageRes.ok) {
-                const subHtml = await subPageRes.text();
+                subHtml = await subPageRes.text();
+              }
+              if (!subHtml || !subHtml.includes('program-source-text')) {
+                try {
+                  const jinaRes = await fetch(`https://r.jina.ai/${subUrl}`, { headers: { 'Accept': 'text/html', 'x-respond-with': 'html' }, signal: AbortSignal.timeout(10000) });
+                  if (jinaRes.ok) subHtml = await jinaRes.text();
+                } catch {}
+              }
+              if (subHtml) {
                 const $sub = cheerio.load(subHtml);
                 const code = $sub('#program-source-text').text();
                 if (code) {
-                  referenceSolutions.push({
-                    code,
-                    language: sub.programmingLanguage,
-                    url: subUrl,
-                  });
+                  referenceSolutions.push({ code, language: sub.programmingLanguage, url: subUrl });
                 }
               }
             }
@@ -385,9 +390,24 @@ async function fetchCFEditorialFromUrl(tutorialUrl: string): Promise<string | un
     if (pageRes.ok) {
       const pageHtml = await pageRes.text();
       const $page = cheerio.load(pageHtml);
-      // The editorial content is in .ttypography within the blog entry
       const $typo = $page('.ttypography');
-      if (!$typo.length) return undefined;
+      if (!$typo.length) {
+        // Cloudflare blocked — try Jina
+        try {
+          const jinaRes = await fetch(`https://r.jina.ai/${tutorialUrl}`, { headers: { 'Accept': 'text/html', 'x-respond-with': 'html' }, signal: AbortSignal.timeout(10000) });
+          if (jinaRes.ok) {
+            const jinaHtml = await jinaRes.text();
+            const $jina = cheerio.load(jinaHtml);
+            const $jtypo = $jina('.ttypography');
+            if ($jtypo.length) {
+              $jtypo.find('pre, code').each((_, el) => { const $el = $jina(el); $el.html(($el.html() || '').replace(/</g, '<').replace(/>/g, '>')); });
+              const content = $jtypo.html() || '';
+              if (content.trim().length > 100) return htmlToMarkdown(content);
+            }
+          }
+        } catch {}
+        return undefined;
+      }
 
       // Escape < and > inside <pre> and <code> tags so they aren't stripped
       // as HTML tags (e.g. #include <bits/stdc++.h> → #include <bits/stdc++.h>)
@@ -417,12 +437,16 @@ async function fetchCFEditorialFromContest(contestId: string): Promise<string | 
   try {
     // Fetch the contest page which lists materials (announcements, tutorials)
     const contestUrl = `https://codeforces.com/contest/${contestId}`;
-    const res = await fetch(contestUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-    });
-    if (!res.ok) return undefined;
-
-    const html = await res.text();
+    let res = await fetch(contestUrl, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } });
+    let html = '';
+    if (res.ok) html = await res.text();
+    if (!html || !html.includes('tutorial')) {
+      try {
+        const jinaRes = await fetch(`https://r.jina.ai/${contestUrl}`, { headers: { 'Accept': 'text/html', 'x-respond-with': 'html' }, signal: AbortSignal.timeout(10000) });
+        if (jinaRes.ok) html = await jinaRes.text();
+      } catch {}
+    }
+    if (!html) return undefined;
     const $ = cheerio.load(html);
 
     // Look for links containing "Tutorial", "Editorial", or "Announcement"
