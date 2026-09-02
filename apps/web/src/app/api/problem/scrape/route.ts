@@ -2,8 +2,7 @@ import { NextRequest } from 'next/server';
 import { ScraperRegistry, ProblemScraperService, mapToPublicScrapedProblemDTO } from '@codeon/scrapers';
 import { prisma } from '@/lib/prisma';
 import { decryptKey } from '@/lib/crypto';
-
-const DEMO_USER_EMAIL = 'demo@codeon.dev';
+import { getAuthUser } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   try {
@@ -21,28 +20,31 @@ export async function POST(req: NextRequest) {
         };
 
         try {
-          // 1. Fetch user's configured Gemini API key & model from DB
-          let geminiApiKey: string | undefined = process.env.GEMINI_API_KEY;
-          let geminiModel: string | undefined = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+          // 1. Fetch the AUTHENTICATED user's Gemini API key & model from DB
+          let geminiApiKey: string | undefined;
+          let geminiModel: string | undefined = 'gemini-2.5-flash';
 
-          try {
-            const user = await prisma.user.findUnique({
-              where: { email: DEMO_USER_EMAIL },
-              include: { apiKeys: true },
-            });
-            if (user?.apiKeys) {
-              for (const keyObj of user.apiKeys) {
-                if (keyObj.provider === 'gemini') {
-                  const dec = decryptKey(keyObj.encryptedKey);
-                  if (dec && dec.trim()) geminiApiKey = dec.trim();
-                } else if (keyObj.provider === 'gemini_model') {
-                  const dec = decryptKey(keyObj.encryptedKey);
-                  if (dec && dec.trim()) geminiModel = dec.trim();
+          const authUser = await getAuthUser();
+          if (authUser) {
+            try {
+              const user = await prisma.user.findUnique({
+                where: { id: authUser.userId },
+                include: { apiKeys: true },
+              });
+              if (user?.apiKeys) {
+                for (const keyObj of user.apiKeys) {
+                  if (keyObj.provider === 'gemini') {
+                    const dec = decryptKey(keyObj.encryptedKey);
+                    if (dec && dec.trim()) geminiApiKey = dec.trim();
+                  } else if (keyObj.provider === 'gemini_model') {
+                    const dec = decryptKey(keyObj.encryptedKey);
+                    if (dec && dec.trim()) geminiModel = dec.trim();
+                  }
                 }
               }
+            } catch (e) {
+              console.warn('[Scrape Route] Could not load API key from DB:', e);
             }
-          } catch (e) {
-            console.warn('[Scrape Route] Could not load API key from DB, fallback to env:', e);
           }
 
           const service = new ProblemScraperService(prisma);

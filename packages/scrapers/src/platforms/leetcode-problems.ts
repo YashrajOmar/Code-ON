@@ -296,7 +296,7 @@ export class LeetCodeProblemScraper implements IProblemScraper {
         url,
         platform: 'leetcode',
         title: q.title,
-        isInteractive: false, // LC problems are typically not interactive in the same way, or it's hard to infer here
+        isInteractive: false,
         content: {
           problemStatementMarkdown: htmlToMarkdown(q.content),
           constraintsMarkdown: extractConstraints(q.content).join('\n'),
@@ -308,6 +308,7 @@ export class LeetCodeProblemScraper implements IProblemScraper {
           output: ex.output,
           explanation: ex.explanation,
         })),
+        referenceSolutions: editorialCode ? [{ code: editorialCode, language: editorialLanguage || 'cpp', url }] : undefined,
       };
 
       return { problem, error: null };

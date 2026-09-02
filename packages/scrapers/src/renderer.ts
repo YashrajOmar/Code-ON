@@ -34,8 +34,9 @@ async function getBrowser() {
           '--disable-gpu',
         ]
       });
-    } catch {
-      throw new Error('Playwright browser not available on this platform');
+    } catch (e) {
+      browserPromise = null;
+      throw new Error('Playwright not available');
     }
   }
   return browserPromise;
