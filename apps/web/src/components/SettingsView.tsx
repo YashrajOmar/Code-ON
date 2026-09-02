@@ -37,6 +37,8 @@ export default function SettingsView() {
   const [seedCode, setSeedCode] = useState("");
   const [seedTitle, setSeedTitle] = useState("");
   const [seedTags, setSeedTags] = useState("");
+  const [seedPlatform, setSeedPlatform] = useState("codeforces");
+  const [seedUrl, setSeedUrl] = useState("");
   const [seedSaving, setSeedSaving] = useState(false);
   const [seedMsg, setSeedMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [trainedSolutions, setTrainedSolutions] = useState<Array<{ topic: string; title: string; platform: string; tags: string[]; patterns: string[]; language: string; url: string | null; updatedAt: string | null }>>([]);
@@ -736,14 +738,29 @@ export default function SettingsView() {
           )}
 
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <select
+                value={seedPlatform}
+                onChange={(e) => setSeedPlatform(e.target.value)}
+                style={{
+                  padding: "8px 12px", borderRadius: 8, flex: "0 0 140px",
+                  background: "var(--surface-3)", border: "1px solid var(--border-default)",
+                  color: "var(--text-primary)", fontSize: 13, outline: "none", cursor: "pointer", boxSizing: "border-box",
+                }}
+              >
+                <option value="codeforces">Codeforces</option>
+                <option value="leetcode">LeetCode</option>
+                <option value="atcoder">AtCoder</option>
+                <option value="codechef">CodeChef</option>
+                <option value="manual">Manual</option>
+              </select>
               <input
                 type="text"
                 value={seedTitle}
                 onChange={(e) => setSeedTitle(e.target.value)}
                 placeholder="Problem title (e.g. Two Sum)"
                 style={{
-                  flex: 1, padding: "8px 12px", borderRadius: 8,
+                  flex: 1, minWidth: 150, padding: "8px 12px", borderRadius: 8,
                   background: "var(--surface-3)", border: "1px solid var(--border-default)",
                   color: "var(--text-primary)", fontSize: 13, outline: "none", boxSizing: "border-box",
                 }}
@@ -752,14 +769,25 @@ export default function SettingsView() {
                 type="text"
                 value={seedTags}
                 onChange={(e) => setSeedTags(e.target.value)}
-                placeholder="Tags (comma-separated, e.g. array, hashmap)"
+                placeholder="Tags (e.g. array, hashmap)"
                 style={{
-                  flex: 1, padding: "8px 12px", borderRadius: 8,
+                  flex: 1, minWidth: 150, padding: "8px 12px", borderRadius: 8,
                   background: "var(--surface-3)", border: "1px solid var(--border-default)",
                   color: "var(--text-primary)", fontSize: 13, outline: "none", boxSizing: "border-box",
                 }}
               />
             </div>
+            <input
+              type="text"
+              value={seedUrl}
+              onChange={(e) => setSeedUrl(e.target.value)}
+              placeholder="Problem URL (e.g. https://codeforces.com/problemset/problem/1/A)"
+              style={{
+                width: "100%", padding: "8px 12px", borderRadius: 8,
+                background: "var(--surface-3)", border: "1px solid var(--border-default)",
+                color: "var(--text-primary)", fontSize: 13, outline: "none", boxSizing: "border-box",
+              }}
+            />
             <textarea
               value={seedCode}
               onChange={(e) => setSeedCode(e.target.value)}
@@ -787,7 +815,8 @@ export default function SettingsView() {
                         solutions: [{
                           code: seedCode.trim(),
                           problemTitle: seedTitle.trim() || "Manual Submission",
-                          platform: "manual",
+                          platform: seedPlatform,
+                          url: seedUrl.trim() || undefined,
                           tags: seedTags.split(",").map((t) => t.trim()).filter(Boolean),
                         }],
                       }),
@@ -798,6 +827,7 @@ export default function SettingsView() {
                       setSeedCode("");
                       setSeedTitle("");
                       setSeedTags("");
+                      setSeedUrl("");
                       fetchTrainedSolutions();
                     } else {
                       setSeedMsg({ type: "error", text: json.error || "Failed to store solution" });
