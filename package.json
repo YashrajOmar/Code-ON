@@ -2,7 +2,7 @@
   "name": "codeon",
   "private": true,
   "version": "0.1.0",
-  "description": "Personalized AI Coding Coach â€” monorepo root",
+  "description": "Personalized AI Coding Coach — monorepo root",
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
