@@ -22,7 +22,14 @@ export class ProblemScraperService implements ProblemCachePort {
     try {
       // Parse DB JSON and ensure it strictly matches the schema
       const parsed = JSON.parse(problem.data);
-      return ScrapedProblemSchema.parse(parsed);
+      const validated = ScrapedProblemSchema.parse(parsed);
+
+      // Skip cache if the problem statement is empty (stale bad scrape from before Cloudflare fix)
+      if (!validated.content?.problemStatementMarkdown || validated.content.problemStatementMarkdown.trim().length < 20) {
+        return null;
+      }
+
+      return validated;
     } catch (e) {
       console.warn(`[ProblemScraperService] Cache validation failed for ${url}`, e);
       return null;
