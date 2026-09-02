@@ -36,8 +36,7 @@ export interface AuthUser {
  */
 export async function getAuthUser(): Promise<AuthUser | null> {
   try {
-    const session = await auth();
-    const userId = session?.userId;
+    const { userId } = auth();
     if (!userId) return null;
 
     // Get the user's email from Clerk
