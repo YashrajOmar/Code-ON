@@ -106,29 +106,78 @@ async function fetchCFProblemStatement(
       if (jinaRes.ok) {
         const jinaText = await jinaRes.text();
         if (jinaText && jinaText.length > 100) {
-          // Parse the Jina markdown response into our format
-          // Jina returns: Title: ...\nURL Source: ...\nMarkdown Content:\n<actual content>
           const contentStart = jinaText.indexOf('Markdown Content:\n');
-          const markdownContent = contentStart >= 0 ? jinaText.substring(contentStart + 18).trim() : jinaText;
+          const rawContent = contentStart >= 0 ? jinaText.substring(contentStart + 18).trim() : jinaText;
 
-          // Extract time/memory limits from markdown
-          const timeMatch = markdownContent.match(/(\d+)\s*second/i);
-          const memMatch = markdownContent.match(/(\d+)\s*megabyte/i);
-          const timeLimitMs = timeMatch ? parseInt(timeMatch[1]) * 1000 : null;
+          // Jina returns the full page as markdown — extract only the problem statement section.
+          // CF problem pages have: Title, time/memory limits, problem statement, Input, Output, Examples, Note.
+          // The editorial/tutorial is NOT on the problem page — it's on a separate blog page.
+          // But Jina sometimes includes sidebar/footer content. Cut at known boundary markers.
+
+          let statement = rawContent;
+
+          // Strip Jina metadata prefix (Title: ..., URL Source: ...)
+          const titleIdx = statement.indexOf('\n\n');
+          if (titleIdx > 0 && statement.startsWith('Title:')) {
+            statement = statement.substring(titleIdx + 2);
+          }
+
+          // Find the actual problem content — it starts after the problem title line
+          // CF pages have: "Problem - 112A - Codeforces" or similar at the top
+          const problemHeaderMatch = statement.match(/Problem\s*[-–]\s*\d+[A-Z]/i);
+          if (problemHeaderMatch) {
+            statement = statement.substring(problemHeaderMatch.index! + problemHeaderMatch[0].length).trim();
+          }
+
+          // Extract time/memory limits
+          const timeMatch = statement.match(/(\d+(?:\.\d+)?)\s*second/i);
+          const memMatch = statement.match(/(\d+)\s*megabyte/i);
+          const timeLimitMs = timeMatch ? Math.round(parseFloat(timeMatch[1]) * 1000) : null;
           const memoryLimitKb = memMatch ? parseInt(memMatch[1]) * 1024 : null;
 
-          // Extract examples (Input/Output pairs)
+          // Remove time/memory lines from statement
+          statement = statement.replace(/\d+(?:\.\d+)?\s*second/i, '').replace(/\d+\s*megabyte/i, '').trim();
+
+          // Extract Input/Output sections
+          let inputFormat: string | null = null;
+          let outputFormat: string | null = null;
+
+          const inputMatch = statement.match(/(?:^|\n)Input\s*\n([\s\S]*?)(?=\nOutput|\nExamples|\nSample|$)/i);
+          if (inputMatch) {
+            inputFormat = inputMatch[1].trim();
+            statement = statement.replace(inputMatch[0], '').trim();
+          }
+
+          const outputMatch = statement.match(/(?:^|\n)Output\s*\n([\s\S]*?)(?=\nExamples|\nSample|\nNote|\nScraped|$)/i);
+          if (outputMatch) {
+            outputFormat = outputMatch[1].trim();
+            statement = statement.replace(outputMatch[0], '').trim();
+          }
+
+          // Extract examples (Input/Output pairs from sample tests)
           const examples: Array<{ input: string; output: string }> = [];
-          const exampleRegex = /(?:Input|input)\s*\n\s*([^\n]+)\s*\n\s*(?:Output|output)\s*\n\s*([^\n]+)/g;
+          const exampleRegex = /(?:^|\n)(?:Input|input)\s*\n([\s\S]*?)\n(?:Output|output)\s*\n([\s\S]*?)(?=\n(?:Input|input)|\n(?:Note|\nScraped|$))/gi;
           let exMatch;
-          while ((exMatch = exampleRegex.exec(markdownContent)) !== null) {
+          while ((exMatch = exampleRegex.exec(statement)) !== null) {
             examples.push({ input: exMatch[1].trim(), output: exMatch[2].trim() });
           }
 
+          // Remove examples from statement
+          statement = statement.replace(/(?:^|\n)(?:Input|input)\s*\n[\s\S]*?\n(?:Output|output)\s*\n[\s\S]*?(?=\n(?:Input|input)|\n(?:Note|\nScraped|$))/gi, '').trim();
+
+          // Cut at "Scraped Editorial" or any non-problem content
+          const cutMarkers = ['Scraped Editorial', 'Editorial & Optimal', 'Reference Solution', 'Tutorial', 'Comments', 'Reply', 'Blog'];
+          for (const marker of cutMarkers) {
+            const idx = statement.indexOf(marker);
+            if (idx > 0) {
+              statement = statement.substring(0, idx).trim();
+            }
+          }
+
           return {
-            statement: markdownContent,
-            inputFormat: null,
-            outputFormat: null,
+            statement: statement.trim(),
+            inputFormat,
+            outputFormat,
             timeLimitMs,
             memoryLimitKb,
             examples,
