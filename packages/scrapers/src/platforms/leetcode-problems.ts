@@ -174,7 +174,23 @@ function extractExamples(html: string): Array<{ input: string; output: string; e
     if (inputStr || outputStr) examples.push({ input: inputStr, output: outputStr, explanation: explanationStr });
   }
 
-  // Strategy 2: Separate <pre> tags for Input and Output (newer LeetCode format)
+  // Strategy 2: LeetCode "example-block" divs (newer format, no <pre> tags)
+  if (examples.length === 0) {
+    const blockRegex = /<div class="example-block">([\s\S]*?)<\/div>/gi;
+    const blocks = [...html.matchAll(blockRegex)];
+    for (const block of blocks) {
+      const blockHtml = block[1];
+      const inputMatch = blockHtml.match(/<strong>Input:?<\/strong>\s*(?:<[^>]*>)?\s*([\s\S]*?)(?:<\/p>|<strong>)/i);
+      const outputMatch = blockHtml.match(/<strong>Output:?<\/strong>\s*(?:<[^>]*>)?\s*([\s\S]*?)(?:<\/p>|<strong>)/i);
+      const explanationMatch = blockHtml.match(/<strong>Explanation:?<\/strong>\s*([\s\S]*?)(?:<\/div>|$)/i);
+      const inputStr = inputMatch?.[1]?.replace(/<\/?[^>]+(>|$)/g, '').trim() || '';
+      const outputStr = outputMatch?.[1]?.replace(/<\/?[^>]+(>|$)/g, '').trim() || '';
+      const explanationStr = explanationMatch?.[1] ? htmlToMarkdown(explanationMatch[1]).trim() : undefined;
+      if (inputStr || outputStr) examples.push({ input: inputStr, output: outputStr, explanation: explanationStr });
+    }
+  }
+
+  // Strategy 3: Separate <pre> tags for Input and Output (older format)
   if (examples.length === 0) {
     const allPre = [...html.matchAll(/<pre[^>]*>([\s\S]*?)<\/pre>/gi)];
     for (let i = 0; i < allPre.length; i += 2) {
