@@ -78,15 +78,34 @@ async function fetchCFProblemStatement(
   index: string
 ): Promise<{ statement: string; inputFormat: string | null; outputFormat: string | null; timeLimitMs: number | null; memoryLimitKb: number | null; examples: Array<{ input: string; output: string }>; tutorialUrl: string | null }> {
   const pageUrl = `https://codeforces.com/problemset/problem/${contestId}/${index}`;
-  const response = await fetch(pageUrl, {
-    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' },
-  });
+  const browserHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+  };
+
+  const response = await fetch(pageUrl, { headers: browserHeaders });
 
   if (!response.ok) {
     return { statement: '', inputFormat: null, outputFormat: null, timeLimitMs: null, memoryLimitKb: null, examples: [], tutorialUrl: null };
   }
 
-  const html = await response.text();
+  let html = await response.text();
+
+  // Check if Cloudflare is blocking us
+  if (html.includes('Just a moment') || html.includes('browser is being checked') || html.includes('cf-challenge') || html.includes('Please wait')) {
+    // Try Playwright as fallback for Cloudflare challenge
+    try {
+      const { renderPage } = await import('../renderer');
+      html = await renderPage(pageUrl);
+    } catch {
+      return { statement: '', inputFormat: null, outputFormat: null, timeLimitMs: null, memoryLimitKb: null, examples: [], tutorialUrl: null };
+    }
+  }
+
   const $ = cheerio.load(html);
 
   const statementDiv = $('.problem-statement');
