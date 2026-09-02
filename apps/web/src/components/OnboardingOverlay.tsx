@@ -114,7 +114,7 @@ export default function OnboardingOverlay({ onComplete, onGoToSettings }: Onboar
       ),
       action: (
         <button
-          onClick={() => { onGoToSettings(); finish(); }}
+          onClick={() => { onGoToSettings(); }}
           style={btnPrimary}
         >
           Go to Settings →
@@ -155,7 +155,7 @@ export default function OnboardingOverlay({ onComplete, onGoToSettings }: Onboar
         </div>
       ),
       action: (
-        <button onClick={() => { onGoToSettings(); finish(); }} style={btnPrimary}>
+        <button onClick={() => { onGoToSettings(); }} style={btnPrimary}>
           Go to Settings →
         </button>
       ),

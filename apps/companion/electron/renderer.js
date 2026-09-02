@@ -99,6 +99,16 @@ function saveSettings() {
   });
 }
 
+// Also save on blur (when user clicks away from the field)
+document.querySelectorAll("input[data-platform]").forEach(input => {
+  input.addEventListener("change", saveSettings);
+  input.addEventListener("blur", saveSettings);
+});
+codeonUrl.addEventListener("change", () => { saveSettings(); checkConnection(); });
+codeonUrl.addEventListener("blur", () => { saveSettings(); checkConnection(); });
+companionToken.addEventListener("change", saveSettings);
+companionToken.addEventListener("blur", saveSettings);
+
 async function checkConnection() {
   const url = codeonUrl.value.trim() || "https://codeon-coding-coach-eight.vercel.app";
   connText.textContent = "Checking...";
@@ -164,7 +174,7 @@ document.querySelectorAll(".login-btn").forEach(btn => {
     if (result.success) {
       btn.classList.add("logged-in");
       btn.textContent = "Logged In";
-      addStatus(`[${platformName}] New tab opened. Log in, then close the tab.`, "info");
+      // Don't add status here — onStatus listener already handles it
     } else {
       addStatus(`[${platformName}] Login failed: ${result.error}`, "error");
     }
