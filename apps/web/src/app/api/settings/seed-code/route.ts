@@ -11,20 +11,10 @@ import { rateLimit, RATE_LIMITS, tooManyRequests } from '@/lib/rate-limit';
  */
 export async function GET() {
   try {
-    // Allow companion app to fetch count via webhook secret
     const authUser = await getAuthUser();
-    let userId: string;
+    if (!authUser) return NextResponse.json({ solutions: [] });
 
-    if (authUser) {
-      userId = authUser.userId;
-    } else {
-      // Fallback to demo user for companion app
-      let user = await prisma.user.findUnique({ where: { email: 'demo@codeon.dev' } });
-      if (!user) {
-        return NextResponse.json({ solutions: [], total: 0 });
-      }
-      userId = user.id;
-    }
+    const userId = authUser.userId;
 
     const rows = await prisma.$queryRaw<Array<{ topic: string; performanceSummary: string | null }>>`
       SELECT topic, "performanceSummary"
@@ -79,17 +69,8 @@ export async function POST(req: Request) {
         return NextResponse.json({ error: 'Invalid companion token' }, { status: 401 });
       }
       userId = foundUserId;
-    } else if (token === (process.env.INGEST_WEBHOOK_SECRET || 'codeon-companion-secret')) {
-      // Legacy fallback — demo user
-      let user = await prisma.user.findUnique({ where: { email: 'demo@codeon.dev' } });
-      if (!user) {
-        user = await prisma.user.create({
-          data: { email: 'demo@codeon.dev', displayName: 'Developer' },
-        });
-      }
-      userId = user.id;
     } else {
-      // Regular auth via Clerk
+      // Regular auth via Clerk (used by the web app's manual paste form)
       const authUser = await getAuthUser();
       if (!authUser) return unauthorized();
       userId = authUser.userId;
@@ -115,7 +96,6 @@ export async function POST(req: Request) {
     const existingTopics = new Set(existing.map((r: { topic: string }) => r.topic));
 
     let ingested = 0;
-    let skipped = 0;
 
     for (const sol of solutions) {
       if (!sol.code || sol.code.trim().length < 20) continue;
@@ -127,11 +107,6 @@ export async function POST(req: Request) {
 
       const topic = tags[0] || 'general';
       const ragKey = `${topic}_${problemTitle.substring(0, 30).replace(/[^a-z0-9]/gi, '_')}`;
-
-      // Skip if this exact problem+topic was already trained
-      if (existingTopics.has(ragKey)) {
-        // Update it instead of skipping — user may have pasted better code
-      }
 
       // Analyze the code for style signals
       const styleSignals: string[] = [];

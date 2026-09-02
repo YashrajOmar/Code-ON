@@ -114,11 +114,11 @@ async function checkConnection() {
   const url = codeonUrl.value.trim() || "https://codeon-coding-coach-eight.vercel.app";
   connText.textContent = "Checking...";
   try {
-    const result = await window.codeon.checkConnection({ codeonUrl: url });
+    const result = await window.codeon.checkConnection({ codeonUrl: url, companionToken: companionToken.value.trim() });
     if (result.connected) {
       connDot.className = "dot connected";
-      connText.textContent = `Connected to ${url}`;
-      syncBtn.disabled = false;
+      connText.textContent = result.tokenValid === false ? `Connected, but token invalid — regenerate in web app Settings` : `Connected to ${url}`;
+      syncBtn.disabled = !companionToken.value.trim();
     } else {
       connDot.className = "dot disconnected";
       connText.textContent = `Cannot reach CodeOn at ${url}`;

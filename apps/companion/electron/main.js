@@ -427,20 +427,35 @@ ipcMain.handle("login", async (_, { platform }) => {
   }
 });
 
-ipcMain.handle("checkConnection", async (_, { codeonUrl }) => {
+ipcMain.handle("checkConnection", async (_, { codeonUrl, companionToken }) => {
   try {
-    const res = await fetch(`${codeonUrl}/api/settings/seed-code`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer codeon-companion-secret",
-      },
-      body: JSON.stringify({ solutions: [] }),
+    // Check server reachability via a public route
+    const res = await fetch(`${codeonUrl}/api/companion`, {
+      method: "GET",
       signal: AbortSignal.timeout(5000),
     });
-    // 400 = server is running (bad request because empty solutions)
-    // 200 = server is running (shouldn't happen with empty, but just in case)
-    return { connected: res.ok || res.status === 400 };
+    const connected = res.ok || res.status === 400 || res.status === 405;
+
+    // If we have a token, also validate it by hitting the token route
+    if (connected && companionToken && companionToken.trim()) {
+      try {
+        const tokenRes = await fetch(`${codeonUrl}/api/settings/seed-code`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${companionToken.trim()}`,
+          },
+          body: JSON.stringify({ solutions: [] }),
+          signal: AbortSignal.timeout(5000),
+        });
+        // 400 = token valid (empty solutions rejected), 401 = invalid token
+        if (tokenRes.status === 401) {
+          return { connected: false, tokenValid: false };
+        }
+      } catch {}
+    }
+
+    return { connected, tokenValid: true };
   } catch {
     return { connected: false };
   }
@@ -449,7 +464,15 @@ ipcMain.handle("checkConnection", async (_, { codeonUrl }) => {
 ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken }) => {
   const state = loadState();
   const results = { total: 0, perPlatform: {}, errors: [] };
-  const authToken = companionToken || "codeon-companion-secret";
+
+  if (!companionToken || !companionToken.trim()) {
+    mainWindow.webContents.send("status", "ERROR: No Companion Token set. Generate one in the CodeOn web app Settings, then paste it here. Sync aborted.");
+    results.errors.push("No Companion Token — sync aborted. Generate one in Settings on the web app.");
+    results.status = "error";
+    return results;
+  }
+
+  const authToken = companionToken.trim();
 
   try {
     const browser = await getBrowser(true); // visible Chrome for sync — don't close it during sync
