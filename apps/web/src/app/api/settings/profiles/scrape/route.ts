@@ -183,13 +183,14 @@ This means the user ${count > 10 ? 'is comfortable with' : 'is still learning'} 
       const literal = toVectorLiteral(embedding);
 
       await prisma.$executeRaw`
-        INSERT INTO "UserTopicProfile" (id, "userId", topic, "skillTier", "performanceSummary", "language", embedding, "updatedAt")
+        INSERT INTO "UserTopicProfile" (id, "userId", topic, "skillTier", "performanceSummary", "codeSnippet", "language", embedding, "updatedAt")
         VALUES (
           gen_random_uuid()::text,
           ${userId},
           ${tag},
           ${skillTier},
           ${performanceSummary},
+          ${bestCodeSnippet || null},
           'cpp',
           ${literal}::vector,
           NOW()
@@ -198,6 +199,7 @@ This means the user ${count > 10 ? 'is comfortable with' : 'is still learning'} 
         DO UPDATE SET
           "skillTier" = EXCLUDED."skillTier",
           "performanceSummary" = EXCLUDED."performanceSummary",
+          "codeSnippet" = EXCLUDED."codeSnippet",
           "language" = EXCLUDED."language",
           embedding = EXCLUDED.embedding,
           "updatedAt" = NOW()
