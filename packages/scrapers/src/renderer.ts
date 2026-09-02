@@ -1,4 +1,3 @@
-import type { Browser, BrowserContext } from 'playwright';
 import dns from 'dns/promises';
 import { ScraperError } from './types';
 
@@ -19,21 +18,25 @@ const isPrivateIP = (ip: string) => {
   return false;
 };
 
-let browserPromise: Promise<Browser> | null = null;
+let browserPromise: Promise<any> | null = null;
 
 async function getBrowser() {
   if (!browserPromise) {
-    const { chromium } = await import('playwright');
-    browserPromise = chromium.launch({
-      headless: true,
-      args: [
-        '--disable-dev-shm-usage',
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-accelerated-2d-canvas',
-        '--disable-gpu',
-      ]
-    });
+    try {
+      const { chromium } = await import('playwright');
+      browserPromise = chromium.launch({
+        headless: true,
+        args: [
+          '--disable-dev-shm-usage',
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-accelerated-2d-canvas',
+          '--disable-gpu',
+        ]
+      });
+    } catch {
+      throw new Error('Playwright browser not available on this platform');
+    }
   }
   return browserPromise;
 }
