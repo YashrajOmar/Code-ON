@@ -1,21 +1,25 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import type { NextRequest } from "next/server";
 
 const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
+  // Public API routes that don't require auth:
+  // - /api/webhooks/* uses its own Bearer token auth (INGEST_WEBHOOK_SECRET)
+  // - /api/companion is public SSE for Competitive Companion extension
   "/api/webhooks/(.*)",
   "/api/companion",
-  "/api/problem/scrape",
-  "/api/problem/(.*)",
-  "/api/settings/seed-code",
-  "/api/settings/companion-token",
 ]);
 
-export default clerkMiddleware((auth, req) => {
+const handler = clerkMiddleware(async (auth, req) => {
   if (!isPublicRoute(req)) {
-    auth.protect();
+    await auth.protect();
   }
 });
+
+export default function proxy(req: NextRequest) {
+  return handler(req, {} as any);
+}
 
 export const config = {
   matcher: [
