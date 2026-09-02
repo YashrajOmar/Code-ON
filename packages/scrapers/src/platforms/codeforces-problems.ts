@@ -78,15 +78,75 @@ async function fetchCFProblemStatement(
   index: string
 ): Promise<{ statement: string; inputFormat: string | null; outputFormat: string | null; timeLimitMs: number | null; memoryLimitKb: number | null; examples: Array<{ input: string; output: string }>; tutorialUrl: string | null }> {
   const pageUrl = `https://codeforces.com/problemset/problem/${contestId}/${index}`;
-  const response = await fetch(pageUrl, {
-    headers: { 'User-Agent': 'codeOn/1.0 (AI Coding Coach)' },
-  });
+  const browserHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+  };
 
-  if (!response.ok) {
-    return { statement: '', inputFormat: null, outputFormat: null, timeLimitMs: null, memoryLimitKb: null, examples: [], tutorialUrl: null };
+  const response = await fetch(pageUrl, { headers: browserHeaders });
+
+  let html = '';
+
+  if (response.ok) {
+    html = await response.text();
   }
 
-  const html = await response.text();
+  // Check if Cloudflare is blocking us (empty HTML, challenge page, or 403)
+  if (!html || html.includes('Just a moment') || html.includes('browser is being checked') || html.includes('cf-challenge') || html.includes('Please wait') || !html.includes('problem-statement')) {
+    // Try Jina AI reader proxy (bypasses Cloudflare)
+    try {
+      const jinaRes = await fetch(`https://r.jina.ai/${pageUrl}`, {
+        headers: { 'Accept': 'text/html' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (jinaRes.ok) {
+        const jinaText = await jinaRes.text();
+        if (jinaText && jinaText.length > 100) {
+          // Parse the Jina markdown response into our format
+          // Jina returns: Title: ...\nURL Source: ...\nMarkdown Content:\n<actual content>
+          const contentStart = jinaText.indexOf('Markdown Content:\n');
+          const markdownContent = contentStart >= 0 ? jinaText.substring(contentStart + 18).trim() : jinaText;
+
+          // Extract time/memory limits from markdown
+          const timeMatch = markdownContent.match(/(\d+)\s*second/i);
+          const memMatch = markdownContent.match(/(\d+)\s*megabyte/i);
+          const timeLimitMs = timeMatch ? parseInt(timeMatch[1]) * 1000 : null;
+          const memoryLimitKb = memMatch ? parseInt(memMatch[1]) * 1024 : null;
+
+          // Extract examples (Input/Output pairs)
+          const examples: Array<{ input: string; output: string }> = [];
+          const exampleRegex = /(?:Input|input)\s*\n\s*([^\n]+)\s*\n\s*(?:Output|output)\s*\n\s*([^\n]+)/g;
+          let exMatch;
+          while ((exMatch = exampleRegex.exec(markdownContent)) !== null) {
+            examples.push({ input: exMatch[1].trim(), output: exMatch[2].trim() });
+          }
+
+          return {
+            statement: markdownContent,
+            inputFormat: null,
+            outputFormat: null,
+            timeLimitMs,
+            memoryLimitKb,
+            examples,
+            tutorialUrl: null,
+          };
+        }
+      }
+    } catch {}
+
+    // Try Playwright as last resort
+    try {
+      const { renderPage } = await import('../renderer');
+      html = await renderPage(pageUrl);
+    } catch {
+      return { statement: '', inputFormat: null, outputFormat: null, timeLimitMs: null, memoryLimitKb: null, examples: [], tutorialUrl: null };
+    }
+  }
+
   const $ = cheerio.load(html);
 
   const statementDiv = $('.problem-statement');
