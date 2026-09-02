@@ -32,11 +32,11 @@ export async function GET() {
 
       const title = titleMatch?.[1] || r.topic;
       const platform = platformMatch?.[1] || 'manual';
-      const url = urlMatch?.[1] && urlMatch[1] !== 'N/A' ? urlMatch[1] : null;
+      const parsedUrl = urlMatch?.[1] && urlMatch[1] !== 'N/A' ? urlMatch[1] : null;
       const tags = tagsMatch?.[1]?.split(',').map((t) => t.trim()).filter(Boolean) || [];
       const patterns = patternsMatch?.[1]?.split(',').map((p) => p.trim()).filter(Boolean) || [];
 
-      let url: string | null = url;
+      let url: string | null = parsedUrl;
       if (!url) {
         if (platform === 'codeforces') {
           url = `https://codeforces.com/problemset`;
