@@ -162,27 +162,46 @@ function extractCodeFromEditorial(content: string): {
 function extractExamples(html: string): Array<{ input: string; output: string; explanation?: string }> {
   const examples: Array<{ input: string; output: string; explanation?: string }> = [];
   
-  // LeetCode examples are typically enclosed in <pre> tags
+  // Strategy 1: LeetCode <pre> tags with Input:/Output: (classic format)
   const preTags = [...html.matchAll(/<pre>\s*(?:<strong>)?Input:(?:<\/strong>)?\s*([\s\S]*?)(?:<strong>)?Output:(?:<\/strong>)?\s*([\s\S]*?)(?:(?:<strong>)?Explanation:(?:<\/strong>)?\s*([\s\S]*?))?<\/pre>/gi)];
-  
   for (const match of preTags) {
-    let inputStr = match[1];
-    let outputStr = match[2];
+    let inputStr = match[1] || '';
+    let outputStr = match[2] || '';
     let explanationStr = match[3];
-
-    // Some inputs might have inner tags
     inputStr = inputStr.replace(/<\/?[^>]+(>|$)/g, '').trim();
     outputStr = outputStr.replace(/<\/?[^>]+(>|$)/g, '').trim();
-    if (explanationStr) {
-      explanationStr = htmlToMarkdown(explanationStr).trim();
-    }
-    
-    examples.push({
-      input: inputStr,
-      output: outputStr,
-      explanation: explanationStr,
-    });
+    if (explanationStr) explanationStr = htmlToMarkdown(explanationStr).trim();
+    if (inputStr || outputStr) examples.push({ input: inputStr, output: outputStr, explanation: explanationStr });
   }
+
+  // Strategy 2: Separate <pre> tags for Input and Output (newer LeetCode format)
+  if (examples.length === 0) {
+    const allPre = [...html.matchAll(/<pre[^>]*>([\s\S]*?)<\/pre>/gi)];
+    for (let i = 0; i < allPre.length; i += 2) {
+      const inputContent = allPre[i]?.[1] || '';
+      const outputContent = allPre[i + 1]?.[1] || '';
+      const inputMatch = inputContent.match(/(?:<strong>)?Input:?(?:<\/strong>)?[\s:]*(.*)/i);
+      const outputMatch = outputContent.match(/(?:<strong>)?Output:?(?:<\/strong>)?[\s:]*(.*)/i);
+      if (inputMatch || outputMatch) {
+        const inputStr = (inputMatch?.[1] || inputContent).replace(/<\/?[^>]+(>|$)/g, '').trim();
+        const outputStr = (outputMatch?.[1] || outputContent).replace(/<\/?[^>]+(>|$)/g, '').trim();
+        examples.push({ input: inputStr, output: outputStr });
+      }
+    }
+  }
+
+  // Strategy 3: Extract from markdown-style "Input:" and "Output:" in the statement text
+  if (examples.length === 0) {
+    const text = htmlToMarkdown(html);
+    const exampleRegex = /(?:^|\n)(?:\*{0,2})Input:?\*{0,2}\s*([\s\S]*?)(?:\n)(?:\*{0,2})Output:?\*{0,2}\s*([\s\S]*?)(?=\n(?:\*{0,2})Input|\n(?:\*{0,2})Example|\n(?:\*{0,2})Constraints|\n#|$)/gi;
+    let m;
+    while ((m = exampleRegex.exec(text)) !== null) {
+      const inputStr = m[1].trim();
+      const outputStr = m[2].trim();
+      if (inputStr || outputStr) examples.push({ input: inputStr, output: outputStr });
+    }
+  }
+
   return examples;
 }
 
