@@ -29,6 +29,11 @@ export class ProblemScraperService implements ProblemCachePort {
         return null;
       }
 
+      // Skip cache if examples are missing (stale scrape from before example extraction fix)
+      if (!validated.examples || validated.examples.length === 0) {
+        return null;
+      }
+
       return validated;
     } catch (e) {
       console.warn(`[ProblemScraperService] Cache validation failed for ${url}`, e);
