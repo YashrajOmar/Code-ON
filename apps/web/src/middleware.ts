@@ -1,5 +1,4 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import type { NextRequest } from "next/server";
 
 const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
@@ -10,15 +9,11 @@ const isPublicRoute = createRouteMatcher([
   "/api/settings/companion-token",
 ]);
 
-const handler = clerkMiddleware(async (auth, req) => {
+export default clerkMiddleware(async (auth, req) => {
   if (!isPublicRoute(req)) {
     await auth.protect();
   }
 });
-
-export default function proxy(req: NextRequest) {
-  return handler(req, {} as any);
-}
 
 export const config = {
   matcher: [

@@ -99,14 +99,15 @@ function saveSettings() {
   });
 }
 
-// Also save on blur (when user clicks away from the field)
+// Save on every keystroke (input event) + blur as a safety net
 document.querySelectorAll("input[data-platform]").forEach(input => {
-  input.addEventListener("change", saveSettings);
+  input.addEventListener("input", saveSettings);
   input.addEventListener("blur", saveSettings);
 });
+codeonUrl.addEventListener("input", saveSettings);
 codeonUrl.addEventListener("change", () => { saveSettings(); checkConnection(); });
 codeonUrl.addEventListener("blur", () => { saveSettings(); checkConnection(); });
-companionToken.addEventListener("change", saveSettings);
+companionToken.addEventListener("input", saveSettings);
 companionToken.addEventListener("blur", saveSettings);
 
 async function checkConnection() {
@@ -146,12 +147,6 @@ async function checkConnection() {
 })();
 
 window.codeon.onStatus((msg) => addStatus(msg, "info"));
-
-document.querySelectorAll("input[data-platform]").forEach(input => {
-  input.addEventListener("change", saveSettings);
-});
-codeonUrl.addEventListener("change", () => { saveSettings(); checkConnection(); });
-companionToken.addEventListener("change", saveSettings);
 
 // Login buttons — opens new tab in existing Chrome, doesn't close it
 document.querySelectorAll(".login-btn").forEach(btn => {

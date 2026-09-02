@@ -27,6 +27,7 @@ export default function DashboardView({ onOpenProblem }: { onOpenProblem: (url: 
   const { user } = useUser();
   const [profiles, setProfiles] = useState<ProfileData[]>([]);
   const [loadingProfiles, setLoadingProfiles] = useState(true);
+  const [trainedSolutions, setTrainedSolutions] = useState<Array<{ topic: string; title: string }>>([]);
 
   const displayName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress?.split("@")[0] || "Coder";
   const initials = (user?.firstName?.[0] ?? user?.emailAddresses?.[0]?.emailAddress?.[0] ?? "C").toUpperCase();
@@ -60,6 +61,15 @@ export default function DashboardView({ onOpenProblem }: { onOpenProblem: (url: 
         setLoadingProfiles(false);
       })
       .catch(() => setLoadingProfiles(false));
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/settings/seed-code")
+      .then(r => r.json())
+      .then(data => {
+        if (data.solutions) setTrainedSolutions(data.solutions);
+      })
+      .catch(() => {});
   }, []);
 
   function openProblemInIDE(url: string) {
@@ -132,7 +142,7 @@ export default function DashboardView({ onOpenProblem }: { onOpenProblem: (url: 
               {greeting}, {displayName}
             </h1>
             <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "4px 0 0" }}>
-              {cfRating ? `CF Rating: ${cfRating} · ` : ""}{totalSolved} problems solved
+              {cfRating ? `CF Rating: ${cfRating} · ` : ""}{totalSolved} problems solved{trainedSolutions.length > 0 ? ` · ${trainedSolutions.length} AI-trained` : ""}
             </p>
           </div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 10 }}>
@@ -207,6 +217,27 @@ export default function DashboardView({ onOpenProblem }: { onOpenProblem: (url: 
                 </div>
               )}
             </div>
+
+            {trainedSolutions.length > 0 && (
+              <div className="glass" style={{ borderRadius: 12, padding: 24 }}>
+                <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 16 }}>
+                  Trained Solutions
+                  <span className="tag tag-emerald" style={{ marginLeft: 10, fontSize: 11 }}>
+                    {trainedSolutions.length} trained
+                  </span>
+                </h2>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {trainedSolutions.map((s, i) => (
+                    <span key={i} className="tag tag-cyan" style={{ fontSize: 11 }}>
+                      {s.title}
+                    </span>
+                  ))}
+                </div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 12 }}>
+                  Synced from the CodeOn Companion app. These power your personalized AI hints.
+                </div>
+              </div>
+            )}
           </div>
 
           <div>

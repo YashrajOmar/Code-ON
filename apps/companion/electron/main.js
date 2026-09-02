@@ -370,7 +370,7 @@ async function killChromeAndClearLocks() {
   }
 }
 
-async function getBrowser() {
+async function getBrowser(visible) {
   if (browserContext) {
     try {
       await browserContext.pages();

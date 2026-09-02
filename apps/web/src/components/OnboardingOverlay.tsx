@@ -258,19 +258,18 @@ export default function OnboardingOverlay({ onComplete, onGoToSettings }: Onboar
           </div>
 
           {/* Actions */}
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {!isFirst && (
               <button onClick={() => setStep(step - 1)} style={btnSecondary}>
                 ← Back
               </button>
             )}
             {current.action}
-            {isLast && (
+            {isLast ? (
               <button onClick={finish} style={btnPrimary}>
                 Start Coding →
               </button>
-            )}
-            {!isLast && !current.action && (
+            ) : (
               <button onClick={() => setStep(step + 1)} style={btnPrimary}>
                 Next →
               </button>
