@@ -89,15 +89,56 @@ async function fetchCFProblemStatement(
 
   const response = await fetch(pageUrl, { headers: browserHeaders });
 
-  if (!response.ok) {
-    return { statement: '', inputFormat: null, outputFormat: null, timeLimitMs: null, memoryLimitKb: null, examples: [], tutorialUrl: null };
+  let html = '';
+
+  if (response.ok) {
+    html = await response.text();
   }
 
-  let html = await response.text();
+  // Check if Cloudflare is blocking us (empty HTML, challenge page, or 403)
+  if (!html || html.includes('Just a moment') || html.includes('browser is being checked') || html.includes('cf-challenge') || html.includes('Please wait') || !html.includes('problem-statement')) {
+    // Try Jina AI reader proxy (bypasses Cloudflare)
+    try {
+      const jinaRes = await fetch(`https://r.jina.ai/${pageUrl}`, {
+        headers: { 'Accept': 'text/html' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (jinaRes.ok) {
+        const jinaText = await jinaRes.text();
+        if (jinaText && jinaText.length > 100) {
+          // Parse the Jina markdown response into our format
+          // Jina returns: Title: ...\nURL Source: ...\nMarkdown Content:\n<actual content>
+          const contentStart = jinaText.indexOf('Markdown Content:\n');
+          const markdownContent = contentStart >= 0 ? jinaText.substring(contentStart + 18).trim() : jinaText;
 
-  // Check if Cloudflare is blocking us
-  if (html.includes('Just a moment') || html.includes('browser is being checked') || html.includes('cf-challenge') || html.includes('Please wait')) {
-    // Try Playwright as fallback for Cloudflare challenge
+          // Extract time/memory limits from markdown
+          const timeMatch = markdownContent.match(/(\d+)\s*second/i);
+          const memMatch = markdownContent.match(/(\d+)\s*megabyte/i);
+          const timeLimitMs = timeMatch ? parseInt(timeMatch[1]) * 1000 : null;
+          const memoryLimitKb = memMatch ? parseInt(memMatch[1]) * 1024 : null;
+
+          // Extract examples (Input/Output pairs)
+          const examples: Array<{ input: string; output: string }> = [];
+          const exampleRegex = /(?:Input|input)\s*\n\s*([^\n]+)\s*\n\s*(?:Output|output)\s*\n\s*([^\n]+)/g;
+          let exMatch;
+          while ((exMatch = exampleRegex.exec(markdownContent)) !== null) {
+            examples.push({ input: exMatch[1].trim(), output: exMatch[2].trim() });
+          }
+
+          return {
+            statement: markdownContent,
+            inputFormat: null,
+            outputFormat: null,
+            timeLimitMs,
+            memoryLimitKb,
+            examples,
+            tutorialUrl: null,
+          };
+        }
+      }
+    } catch {}
+
+    // Try Playwright as last resort
     try {
       const { renderPage } = await import('../renderer');
       html = await renderPage(pageUrl);
