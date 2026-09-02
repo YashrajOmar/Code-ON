@@ -39,7 +39,7 @@ export default function SettingsView() {
   const [seedTags, setSeedTags] = useState("");
   const [seedSaving, setSeedSaving] = useState(false);
   const [seedMsg, setSeedMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [trainedSolutions, setTrainedSolutions] = useState<Array<{ topic: string; title: string }>>([]);
+  const [trainedSolutions, setTrainedSolutions] = useState<Array<{ topic: string; title: string; platform: string; tags: string[]; patterns: string[]; language: string; url: string | null; updatedAt: string | null }>>([]);
   const [companionToken, setCompanionToken] = useState<string>("");
   const [tokenLoading, setTokenLoading] = useState(false);
   const [profiles, setProfiles] = useState<Array<{ id: string; platform: string; handle: string }>>([]);
@@ -675,15 +675,49 @@ export default function SettingsView() {
           </p>
 
           {trainedSolutions.length > 0 && (
-            <div style={{ marginBottom: 16, padding: 12, background: "var(--surface-2)", borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                Trained Solutions
+            <div style={{ marginBottom: 16, background: "var(--surface-2)", borderRadius: 8, border: "1px solid var(--border-subtle)", overflow: "hidden" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", padding: "10px 14px", background: "var(--surface-3)", textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid var(--border-subtle)" }}>
+                Trained Solutions ({trainedSolutions.length})
               </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              <div style={{ maxHeight: 400, overflowY: "auto" }}>
                 {trainedSolutions.map((s, i) => (
-                  <span key={i} className="tag tag-cyan" style={{ fontSize: 11 }}>
-                    {s.title}
-                  </span>
+                  <div key={i} style={{ padding: "10px 14px", borderBottom: i < trainedSolutions.length - 1 ? "1px solid var(--border-subtle)" : "none", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4,
+                      textTransform: "uppercase", letterSpacing: "0.05em",
+                      background: s.platform === 'codeforces' ? 'rgba(34,211,238,0.15)' : s.platform === 'leetcode' ? 'rgba(251,191,36,0.15)' : 'rgba(124,58,237,0.15)',
+                      color: s.platform === 'codeforces' ? 'var(--brand-cyan)' : s.platform === 'leetcode' ? 'var(--brand-amber)' : 'var(--brand-violet-light)',
+                    }}>
+                      {s.platform}
+                    </span>
+                    <span style={{ fontSize: 13, color: "var(--text-primary)", fontWeight: 500, flex: 1, minWidth: 120 }}>
+                      {s.url ? (
+                        <a href={s.url} target="_blank" rel="noreferrer" style={{ color: "var(--text-primary)", textDecoration: "none" }}>
+                          {s.title}
+                        </a>
+                      ) : s.title}
+                    </span>
+                    {s.tags.length > 0 && (
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {s.tags.slice(0, 3).map((tag, j) => (
+                          <span key={j} className="tag tag-cyan" style={{ fontSize: 10 }}>{tag}</span>
+                        ))}
+                        {s.tags.length > 3 && <span style={{ fontSize: 10, color: "var(--text-muted)" }}>+{s.tags.length - 3}</span>}
+                      </div>
+                    )}
+                    {s.patterns.length > 0 && (
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {s.patterns.slice(0, 2).map((p, j) => (
+                          <span key={j} className="tag tag-emerald" style={{ fontSize: 10 }}>{p}</span>
+                        ))}
+                      </div>
+                    )}
+                    {s.updatedAt && (
+                      <span style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "JetBrains Mono" }}>
+                        {new Date(s.updatedAt).toLocaleDateString()}
+                      </span>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>

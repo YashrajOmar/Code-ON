@@ -16,19 +16,41 @@ export async function GET() {
 
     const userId = authUser.userId;
 
-    const rows = await prisma.$queryRaw<Array<{ topic: string; performanceSummary: string | null }>>`
-      SELECT topic, "performanceSummary"
+    const rows = await prisma.$queryRaw<Array<{ topic: string; performanceSummary: string | null; language: string | null; updatedAt: Date }>>`
+      SELECT topic, "performanceSummary", "language", "updatedAt"
       FROM "UserTopicProfile"
       WHERE "userId" = ${userId} AND "codeSnippet" IS NOT NULL
       ORDER BY "updatedAt" DESC
     `;
 
-    const solutions = rows.map((r: { topic: string; performanceSummary: string | null }) => {
-      // Extract problem title from the performance summary
+    const solutions = rows.map((r) => {
       const titleMatch = r.performanceSummary?.match(/solution "([^"]+)"/);
+      const platformMatch = r.performanceSummary?.match(/Platform:\s*(\w+)/);
+      const tagsMatch = r.performanceSummary?.match(/Tags:\s*(.+)/);
+      const patternsMatch = r.performanceSummary?.match(/Patterns used:\s*(.+)/);
+
+      const title = titleMatch?.[1] || r.topic;
+      const platform = platformMatch?.[1] || 'manual';
+      const tags = tagsMatch?.[1]?.split(',').map((t) => t.trim()).filter(Boolean) || [];
+      const patterns = patternsMatch?.[1]?.split(',').map((p) => p.trim()).filter(Boolean) || [];
+
+      let url: string | null = null;
+      if (platform === 'codeforces') {
+        url = `https://codeforces.com/problemset`;
+      } else if (platform === 'leetcode') {
+        const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        url = `https://leetcode.com/problems/${slug}/`;
+      }
+
       return {
         topic: r.topic,
-        title: titleMatch?.[1] || r.topic,
+        title,
+        platform,
+        tags,
+        patterns,
+        language: r.language || 'cpp',
+        url,
+        updatedAt: r.updatedAt?.toISOString?.() || null,
       };
     });
 
@@ -122,6 +144,7 @@ export async function POST(req: Request) {
       if (/vector<vector|dp\[|memo\[/.test(lowerCode)) styleSignals.push('2D arrays/DP');
 
       const styleSummary = `Coding style from pasted solution "${problemTitle}":
+- Platform: ${platform}
 - Language: C++
 - Patterns used: ${styleSignals.join(', ') || 'basic'}
 - Code length: ${code.length} chars

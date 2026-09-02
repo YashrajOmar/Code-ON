@@ -27,7 +27,7 @@ export default function DashboardView({ onOpenProblem }: { onOpenProblem: (url: 
   const { user } = useUser();
   const [profiles, setProfiles] = useState<ProfileData[]>([]);
   const [loadingProfiles, setLoadingProfiles] = useState(true);
-  const [trainedSolutions, setTrainedSolutions] = useState<Array<{ topic: string; title: string }>>([]);
+  const [trainedSolutions, setTrainedSolutions] = useState<Array<{ topic: string; title: string; platform: string; tags: string[]; patterns: string[]; url: string | null; updatedAt: string | null }>>([]);
 
   const displayName = user?.username || user?.firstName || user?.emailAddresses?.[0]?.emailAddress?.split("@")[0] || "Coder";
   const initials = (user?.username?.[0] ?? user?.firstName?.[0] ?? user?.emailAddresses?.[0]?.emailAddress?.[0] ?? "C").toUpperCase();
@@ -226,15 +226,33 @@ export default function DashboardView({ onOpenProblem }: { onOpenProblem: (url: 
                     {trainedSolutions.length} trained
                   </span>
                 </h2>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <div style={{ maxHeight: 300, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
                   {trainedSolutions.map((s, i) => (
-                    <span key={i} className="tag tag-cyan" style={{ fontSize: 11 }}>
-                      {s.title}
-                    </span>
+                    <div key={i} style={{ padding: "8px 12px", background: "var(--surface-3)", borderRadius: 8, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{
+                        fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4,
+                        textTransform: "uppercase",
+                        background: s.platform === 'codeforces' ? 'rgba(34,211,238,0.15)' : s.platform === 'leetcode' ? 'rgba(251,191,36,0.15)' : 'rgba(124,58,237,0.15)',
+                        color: s.platform === 'codeforces' ? 'var(--brand-cyan)' : s.platform === 'leetcode' ? 'var(--brand-amber)' : 'var(--brand-violet-light)',
+                      }}>
+                        {s.platform}
+                      </span>
+                      <span style={{ fontSize: 13, color: "var(--text-primary)", flex: 1, minWidth: 100 }}>
+                        {s.url ? <a href={s.url} target="_blank" rel="noreferrer" style={{ color: "var(--text-primary)", textDecoration: "none" }}>{s.title}</a> : s.title}
+                      </span>
+                      {s.tags.slice(0, 2).map((tag, j) => (
+                        <span key={j} className="tag tag-cyan" style={{ fontSize: 10 }}>{tag}</span>
+                      ))}
+                      {s.updatedAt && (
+                        <span style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "JetBrains Mono" }}>
+                          {new Date(s.updatedAt).toLocaleDateString()}
+                        </span>
+                      )}
+                    </div>
                   ))}
                 </div>
                 <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 12 }}>
-                  Synced from the CodeOn Companion app. These power your personalized AI hints.
+                  These power your personalized AI hints.
                 </div>
               </div>
             )}
