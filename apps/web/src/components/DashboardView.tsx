@@ -29,8 +29,8 @@ export default function DashboardView({ onOpenProblem }: { onOpenProblem: (url: 
   const [loadingProfiles, setLoadingProfiles] = useState(true);
   const [trainedSolutions, setTrainedSolutions] = useState<Array<{ topic: string; title: string }>>([]);
 
-  const displayName = user?.firstName || user?.username || user?.emailAddresses?.[0]?.emailAddress?.split("@")[0] || "Coder";
-  const initials = (user?.firstName?.[0] ?? user?.emailAddresses?.[0]?.emailAddress?.[0] ?? "C").toUpperCase();
+  const displayName = user?.username || user?.firstName || user?.emailAddresses?.[0]?.emailAddress?.split("@")[0] || "Coder";
+  const initials = (user?.username?.[0] ?? user?.firstName?.[0] ?? user?.emailAddresses?.[0]?.emailAddress?.[0] ?? "C").toUpperCase();
   const imageUrl = user?.imageUrl;
 
   const [greeting, setGreeting] = useState("Welcome");

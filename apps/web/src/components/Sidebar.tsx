@@ -16,7 +16,7 @@ const NAV = [
 
 export default function Sidebar({ activeView, onViewChange }: SidebarProps) {
   const { isSignedIn, user } = useUser();
-  const initials = user?.firstName?.[0] ?? user?.emailAddresses?.[0]?.emailAddress?.[0]?.toUpperCase() ?? "?";
+  const initials = user?.username?.[0] ?? user?.firstName?.[0] ?? user?.emailAddresses?.[0]?.emailAddress?.[0]?.toUpperCase() ?? "?";
 
   return (
     <aside style={{
