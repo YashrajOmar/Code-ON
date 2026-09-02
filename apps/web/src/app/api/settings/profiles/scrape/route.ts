@@ -131,6 +131,7 @@ async function ingestTopicProfiles(
   userId: string,
   tags: Array<{ tag: string; count: number }>,
   platform: string,
+  handle: string,
   rating?: number | null,
   codeSamples?: Array<{ code: string; tags: string[]; problemName: string }>
 ): Promise<void> {
@@ -167,7 +168,7 @@ async function ingestTopicProfiles(
     const skillTier = inferSkillTier(count, rating);
 
     // Rich summary that connects to the user's actual submissions
-    let performanceSummary = `From user's actual Codeforces submissions (handle: ${platform === 'codeforces' ? 'Korosuke_12' : 'unknown'}):
+    let performanceSummary = `From user's actual Codeforces submissions (handle: ${handle}):
 - Topic: ${tag}
 - Problems solved in this topic: ${count}
 - User's CF rating: ${rating || 'unrated'}
@@ -389,7 +390,7 @@ export async function POST(req: Request) {
 
     // ── RAG Ingestion: Feed actual code + topic data into UserTopicProfile ────
     if (result.topTags && result.topTags.length > 0) {
-      ingestTopicProfiles(authUser.userId, result.topTags, platform, result.rating, codeSamples).catch((e) => {
+      ingestTopicProfiles(authUser.userId, result.topTags, platform, handle, result.rating, codeSamples).catch((e) => {
         console.warn('[RAG Ingest] Failed:', e instanceof Error ? e.message : e);
       });
     }

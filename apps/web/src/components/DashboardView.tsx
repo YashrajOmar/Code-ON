@@ -51,10 +51,10 @@ export default function DashboardView({ onOpenProblem }: { onOpenProblem: (url: 
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ platform: p.platform, handle: p.handle }),
               });
-              if (!res.ok) return null;
+              if (!res.ok) return { handle: p.handle, platform: p.platform };
               const j = await res.json();
-              return j.data ?? null;
-            } catch { return null; }
+              return j.data ?? { handle: p.handle, platform: p.platform };
+            } catch { return { handle: p.handle, platform: p.platform }; }
           })
         );
         setProfiles(scraped.filter(Boolean));
