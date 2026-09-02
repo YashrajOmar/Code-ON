@@ -113,20 +113,21 @@ async function executeViaDocker(
 async function executeViaWandbox(
   code: string,
   input: string,
-  timeoutMs: number
+  timeoutMs: number,
+  language: string = "cpp17"
 ): Promise<{ output: string; error: string | null }> {
   const WANDBOX_URL = "https://wandbox.org/api/compile.json";
 
   // Map our language to Wandbox's compiler name
   const compilerMap: Record<string, string> = {
-    cpp: "gcc-head-cpp",
-    cpp17: "gcc-head-cpp",
-    cpp20: "gcc-head-cpp",
+    cpp: "gcc-head",
+    cpp17: "gcc-head",
+    cpp20: "gcc-head",
     python3: "cpython-head",
     java: "openjdk-head",
   };
 
-  const compiler = compilerMap["cpp"] ?? compilerMap["cpp17"] ?? "gcc-head-cpp";
+  const compiler = compilerMap[language] ?? compilerMap["cpp17"] ?? "gcc-head";
 
   const response = await fetch(WANDBOX_URL, {
     method: "POST",
@@ -170,7 +171,8 @@ async function executeViaWandbox(
 export async function executeCode(
   code: string,
   input: string,
-  timeoutMs: number = 3000
+  timeoutMs: number = 3000,
+  language: string = "cpp17"
 ): Promise<{ output: string; error: string | null }> {
   // Try Docker first (local dev)
   const hasDocker = await checkDocker();
@@ -178,10 +180,10 @@ export async function executeCode(
     try {
       return await executeViaDocker(code, input, timeoutMs);
     } catch {
-      // Docker failed — fall back to Piston
+      // Docker failed — fall back to Wandbox
     }
   }
 
   // Fall back to Wandbox API (deployed / no Docker)
-  return await executeViaWandbox(code, input, timeoutMs);
+  return await executeViaWandbox(code, input, timeoutMs, language);
 }

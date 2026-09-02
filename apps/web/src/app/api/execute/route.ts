@@ -41,13 +41,16 @@ export async function POST(req: Request) {
     // Typical latency: ~400ms per test case.
     const results = await Promise.all(
       testCases.map(async (tc: any) => {
-        const { output, error } = await executeCode(code, tc.input || '');
+        const { output, error } = await executeCode(code, tc.input || '', 3000, language || 'cpp17');
 
         if (error === 'compilation') {
           return { actual: output, pass: false, isCompileError: true };
         }
         if (error === 'timeout') {
           return { actual: 'Time Limit Exceeded', pass: false, isTimeout: true };
+        }
+        if (error && output === '') {
+          return { actual: error, pass: false, isCompileError: true };
         }
 
         const pass = compareCPOutput(output, tc.expected);
