@@ -77,9 +77,17 @@ let isQuitting = false;
 app.on("before-quit", () => { isQuitting = true; });
 app.isQuitting = false;
 
+// ── Auto-sync cooldown (prevents infinite retry when auth fails) ────────────
+let autoSyncCooldownUntil = 0;
+const AUTO_SYNC_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+
 function startAutoSync() {
   if (autoSyncTimer) clearInterval(autoSyncTimer);
   autoSyncTimer = setInterval(() => {
+    if (Date.now() < autoSyncCooldownUntil) {
+      // In cooldown — skip this auto-sync cycle
+      return;
+    }
     mainWindow.webContents.send("auto-sync");
   }, SYNC_INTERVAL);
 
@@ -541,40 +549,78 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken, isAutoSyn
 
   const authToken = companionToken.trim();
 
+  // ── AUTH GATE: Check cookies BEFORE opening any browser/page ──────────────
+  // This prevents the memory leak: no page is created if auth fails
+  const platformCookieMap = {
+    codeforces: ['CF_ORG_ID', 'X-User-Sn', 'rc'],
+    leetcode: ['LEETCODE_SESSION', 'csrftoken'],
+    atcoder: ['REVEL_SESSION', 'ARBCID'],
+  };
+
+  // Check which platforms are authenticated (without creating any page)
+  let allAuthFailed = true;
+  const authenticatedPlatforms = new Set();
+
   try {
-    // Auto-sync = headless (no visible Chrome), Manual sync = visible Chrome
-    const browser = await getBrowser(!isAutoSync);
+    const browser = await getBrowser(false); // always headless for cookie check
+    const context = browser.contexts()[0] || browser;
+    const cookies = await context.cookies();
+
+    for (const [platform, handle] of Object.entries(handles)) {
+      if (!handle || !handle.trim()) continue;
+      const required = platformCookieMap[platform] || [];
+      if (required.length === 0) {
+        authenticatedPlatforms.add(platform);
+        allAuthFailed = false;
+        continue;
+      }
+      const hasAuth = cookies.some(c =>
+        required.some(r => c.name.includes(r)) || c.domain.includes(platform)
+      );
+      if (hasAuth) {
+        authenticatedPlatforms.add(platform);
+        allAuthFailed = false;
+      } else {
+        const p = PLATFORMS[platform];
+        mainWindow.webContents.send("status", `[${p?.name || platform}] Skipped sync: Login required.`);
+        results.perPlatform[platform] = { status: "login_required", count: 0 };
+      }
+    }
+  } catch (e) {
+    mainWindow.webContents.send("status", "Browser error during auth check. Try restarting the app.");
+    results.errors.push("Browser error: " + e.message);
+    results.status = "error";
+    return results;
+  }
+
+  // If all platforms failed auth, set cooldown for auto-sync
+  if (allAuthFailed && isAutoSync) {
+    autoSyncCooldownUntil = Date.now() + AUTO_SYNC_COOLDOWN_MS;
+    mainWindow.webContents.send("status", "All platforms need login. Auto-sync paused for 5 minutes.");
+    results.status = "done";
+    return results;
+  }
+
+  if (allAuthFailed) {
+    results.status = "done";
+    return results;
+  }
+
+  // ── Only now create a page (after auth verified) ────────────────────────────
+  try {
+    const browser = await getBrowser(!isAutoSync); // visible for manual, headless for auto
     const page = await browser.newPage();
 
     for (const [platform, handle] of Object.entries(handles)) {
       if (!handle || !handle.trim()) continue;
+      // Skip platforms that failed auth check
+      if (!authenticatedPlatforms.has(platform)) continue;
+
       const p = PLATFORMS[platform];
       if (!p) {
         results.perPlatform[platform] = { status: "not_supported", count: 0 };
         continue;
       }
-
-      // ── AUTH GATE: Check login status before scraping ──────────────────
-      try {
-        const context = browser.contexts()[0] || browser;
-        const cookies = await context.cookies();
-        const platformCookieMap = {
-          codeforces: ['CF_ORG_ID', 'X-User-Sn', 'rc'],
-          leetcode: ['LEETCODE_SESSION', 'csrftoken'],
-          atcoder: ['REVEL_SESSION', 'ARBCID'],
-        };
-        const required = platformCookieMap[platform] || [];
-        if (required.length > 0) {
-          const hasAuth = cookies.some(c =>
-            required.some(r => c.name.includes(r)) || c.domain.includes(platform)
-          );
-          if (!hasAuth) {
-            mainWindow.webContents.send("status", `[${p.name}] Skipped sync: Login required. Click Login first.`);
-            results.perPlatform[platform] = { status: "login_required", count: 0 };
-            continue;
-          }
-        }
-      } catch {}
 
       // LeetCode uses custom scraper (no public API)
       if (p.scrape) {
@@ -885,6 +931,9 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken, isAutoSyn
         results.perPlatform[platform] = { status: "error", count: 0 };
       }
     }
+
+    // Clean up the page we created
+    try { await page.close(); } catch {}
 
     saveState(state);
     results.status = "done";
