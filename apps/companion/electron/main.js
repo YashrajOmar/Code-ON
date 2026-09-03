@@ -83,14 +83,14 @@ function startAutoSync() {
     mainWindow.webContents.send("auto-sync");
   }, SYNC_INTERVAL);
 
-  // Also sync 10 seconds after startup if handles are saved
+  // Also sync 60 seconds after startup if handles are saved
   setTimeout(async () => {
     const settings = loadSettings();
     const hasHandles = settings.handles && Object.values(settings.handles).some(h => h && h.trim());
     if (hasHandles) {
       mainWindow.webContents.send("auto-sync");
     }
-    }, 60000); // 60 seconds after startup (was 10s for testing)
+    }, 60000);
 }
 
 // ── Storage ────────────────────────────────────────────────────────────────
@@ -365,21 +365,22 @@ async function getBrowser(visible) {
   await killChromeAndClearLocks();
   
   const args = ["--disable-blink-features=AutomationControlled", "--start-maximized"];
+  const isHeadless = visible === false;
   
   try {
     browserContext = await chromium.launchPersistentContext(PROFILE_DIR, {
-      headless: false,
+      headless: isHeadless,
       channel: "chrome",
-      viewport: null,
+      viewport: isHeadless ? { width: 1280, height: 800 } : null,
       args,
       ignoreDefaultArgs: ["--enable-automation"],
     });
   } catch (e) {
     await killChromeAndClearLocks();
     browserContext = await chromium.launchPersistentContext(PROFILE_DIR, {
-      headless: false,
+      headless: isHeadless,
       channel: "chrome",
-      viewport: visible ? null : { width: 1280, height: 800 },
+      viewport: isHeadless ? { width: 1280, height: 800 } : null,
       args,
       ignoreDefaultArgs: ["--enable-automation"],
     });
@@ -436,7 +437,19 @@ ipcMain.handle("check-login-status", async (_, { platform }) => {
     if (required.length === 0) return { loggedIn: true };
     
     const found = cookies.filter(c => required.some(r => c.name.includes(r)) || c.domain.includes(platform));
-    return { loggedIn: found.length > 0 };
+    const isLoggedIn = found.length > 0;
+
+    // If logged in, purge the failed queue for this platform
+    if (isLoggedIn) {
+      const state = loadState();
+      const failedQueueKey = `${platform}FailedQueue`;
+      if (state[failedQueueKey] && state[failedQueueKey].length > 0) {
+        state[failedQueueKey] = [];
+        saveState(state);
+      }
+    }
+    
+    return { loggedIn: isLoggedIn };
   } catch {
     return { loggedIn: false };
   }
@@ -515,13 +528,13 @@ ipcMain.handle("checkConnection", async (_, { codeonUrl, companionToken }) => {
   }
 });
 
-ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken }) => {
+ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken, isAutoSync }) => {
   const state = loadState();
   const results = { total: 0, perPlatform: {}, errors: [] };
 
   if (!companionToken || !companionToken.trim()) {
-    mainWindow.webContents.send("status", "ERROR: No Companion Token set. Generate one in the CodeOn web app Settings, then paste it here. Sync aborted.");
-    results.errors.push("No Companion Token — sync aborted. Generate one in Settings on the web app.");
+    mainWindow.webContents.send("status", "ERROR: No Companion Token set. Sync aborted.");
+    results.errors.push("No Companion Token — sync aborted.");
     results.status = "error";
     return results;
   }
@@ -529,7 +542,8 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken }) => {
   const authToken = companionToken.trim();
 
   try {
-    const browser = await getBrowser(true); // visible Chrome for sync — don't close it during sync
+    // Auto-sync = headless (no visible Chrome), Manual sync = visible Chrome
+    const browser = await getBrowser(!isAutoSync);
     const page = await browser.newPage();
 
     for (const [platform, handle] of Object.entries(handles)) {
@@ -539,6 +553,28 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken }) => {
         results.perPlatform[platform] = { status: "not_supported", count: 0 };
         continue;
       }
+
+      // ── AUTH GATE: Check login status before scraping ──────────────────
+      try {
+        const context = browser.contexts()[0] || browser;
+        const cookies = await context.cookies();
+        const platformCookieMap = {
+          codeforces: ['CF_ORG_ID', 'X-User-Sn', 'rc'],
+          leetcode: ['LEETCODE_SESSION', 'csrftoken'],
+          atcoder: ['REVEL_SESSION', 'ARBCID'],
+        };
+        const required = platformCookieMap[platform] || [];
+        if (required.length > 0) {
+          const hasAuth = cookies.some(c =>
+            required.some(r => c.name.includes(r)) || c.domain.includes(platform)
+          );
+          if (!hasAuth) {
+            mainWindow.webContents.send("status", `[${p.name}] Skipped sync: Login required. Click Login first.`);
+            results.perPlatform[platform] = { status: "login_required", count: 0 };
+            continue;
+          }
+        }
+      } catch {}
 
       // LeetCode uses custom scraper (no public API)
       if (p.scrape) {

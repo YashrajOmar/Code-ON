@@ -255,11 +255,11 @@ if (clearDataBtn) {
   });
 }
 
-async function doSync() {
+async function doSync(isAutoSync = false) {
   if (syncing) return;
   const handles = getHandles();
   if (Object.keys(handles).length === 0) {
-    addStatus("Please enter at least one handle.", "error");
+    if (!isAutoSync) addStatus("Please enter at least one handle.", "error");
     return;
   }
 
@@ -267,13 +267,14 @@ async function doSync() {
   syncActive = false;
   syncBtn.disabled = true;
   syncBtnText.innerHTML = '<span class="spinner"></span> Syncing...';
-  addStatus("Starting sync...", "info");
+  addStatus(isAutoSync ? "Auto-sync started..." : "Starting sync...", "info");
 
   try {
     const result = await window.codeon.sync({
       handles,
       codeonUrl: codeonUrl.value.trim() || "https://codeon-coding-coach-eight.vercel.app",
       companionToken: companionToken.value.trim(),
+      isAutoSync,
     });
 
     syncActive = false;
@@ -284,8 +285,8 @@ async function doSync() {
         const name = platform.charAt(0).toUpperCase() + platform.slice(1);
         if (info.count > 0) {
           addStatus(`  [${name}] ${info.count} solutions uploaded`, "success");
-        } else if (info.status === "login_expired") {
-          addStatus(`  [${name}] LOGIN EXPIRED — click Login to re-login`, "error");
+        } else if (info.status === "login_required" || info.status === "login_expired") {
+          addStatus(`  [${name}] LOGIN REQUIRED — click Login first`, "error");
           const loginBtn = document.querySelector(`button[data-login="${platform}"]`);
           if (loginBtn) { loginBtn.classList.remove("logged-in"); loginBtn.textContent = "Login"; }
         } else if (info.status === "not_supported") {
@@ -311,11 +312,10 @@ async function doSync() {
   }
 }
 
-syncBtn.addEventListener("click", () => doSync());
+syncBtn.addEventListener("click", () => doSync(false));
 
 window.codeon.onAutoSync(() => {
   if (!syncing) {
-    addStatus("Auto-sync started...", "info");
-    doSync();
+    doSync(true);
   }
 });
