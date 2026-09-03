@@ -172,6 +172,16 @@ document.querySelectorAll(".login-btn").forEach(btn => {
 
     btn.textContent = "Opening...";
     btn.disabled = true;
+
+    // Validate handle before marking as logged in
+    const isValid = await window.codeon.validateHandle({ platform, handle });
+    if (!isValid) {
+      addStatus(`[${platformName}] Invalid handle "${handle}". Check your username on ${platformName}.`, "error");
+      btn.textContent = "Login";
+      btn.disabled = false;
+      return;
+    }
+
     const result = await window.codeon.login({ platform });
     btn.textContent = "Login";
     btn.disabled = false;

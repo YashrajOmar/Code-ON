@@ -388,6 +388,37 @@ async function getBrowser(visible) {
   return browserContext;
 }
 
+// ── Handle Validation ──────────────────────────────────────────────────────
+ipcMain.handle("validate-handle", async (_, { platform, handle }) => {
+  try {
+    if (platform === "codeforces") {
+      const res = await fetch(`https://codeforces.com/api/user.info?handles=${handle}`);
+      const data = await res.json();
+      return data.status === "OK";
+    }
+    if (platform === "leetcode") {
+      const res = await fetch("https://leetcode.com/graphql", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: `query userProfile($username: String!) { matchedUser(username: $username) { username } }`,
+          variables: { username: handle },
+        }),
+      });
+      const data = await res.json();
+      return data?.data?.matchedUser?.username === handle;
+    }
+    if (platform === "atcoder") {
+      const res = await fetch(`https://atcoder.jp/users/${handle}/history/json`);
+      return res.ok;
+    }
+    // Unknown platform — allow it (don't block unsupported platforms)
+    return true;
+  } catch {
+    return false;
+  }
+});
+
 ipcMain.handle("login", async (_, { platform }) => {
   try {
     const p = PLATFORMS[platform];
