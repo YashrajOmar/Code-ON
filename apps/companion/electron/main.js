@@ -166,64 +166,64 @@ const PLATFORMS = {
       await page.goto(`https://leetcode.com/`, { waitUntil: "domcontentloaded", timeout: 20000 }).catch(() => {});
       await page.waitForTimeout(3000);
 
-      // Step 1: Get ALL solved problems via allQuestionsRaw (filters by status='ac')
-      sendStatus(`[LeetCode] Fetching ALL solved problems...`);
+      // Step 1: Get RECENT accepted submissions (timestamp descending, not by problem ID)
+      sendStatus(`[LeetCode] Fetching recent accepted submissions...`);
 
-      const allSolved = await page.evaluate(async () => {
+      const recentSubs = await page.evaluate(async (limit) => {
         try {
           const res = await fetch("https://leetcode.com/graphql", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              query: 'query allQuestionsRaw { allQuestionsRaw { title titleSlug difficulty status } }',
+              query: `query recentAcSubmissionList($userSlug: String!, $limit: Int!) {
+                recentAcSubmissions(userSlug: $userSlug, limit: $limit) {
+                  id title titleSlug timestamp lang { name }
+                }
+              }`,
+              variables: { userSlug: arguments[0], limit: limit },
             }),
           });
           const data = await res.json();
-          const all = data?.data?.allQuestionsRaw || [];
-          const solved = all.filter(q => q.status === 'ac');
-          return solved.map(q => ({ title: q.title, titleSlug: q.titleSlug, tags: [] }));
+          return data?.data?.recentAcSubmissions || [];
         } catch (e) {
-          return [];
+          // Fallback: try userProfileStats for total count + recentSubmissions
+          try {
+            const res2 = await fetch("https://leetcode.com/graphql", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                query: `query userProfileQuestionsStatus($status: StatusFilterEnum!, $limit: Int, $skip: Int, $sortField: SortFieldEnum!, $sortOrder: SortingOrderEnum!, $userSlug: String!) {
+                  userProfileQuestionsStatus(status: $status, limit: $limit, skip: $skip, sortField: $sortField, sortOrder: $sortOrder, userSlug: $userSlug) {
+                    id title titleSlug difficulty
+                  }
+                }`,
+                variables: { status: "ACCEPTED", limit: limit, skip: 0, sortField: "LAST_SUBMITTED_AT", sortOrder: "DESCENDING", userSlug: arguments[0] },
+              }),
+            });
+            const data2 = await res2.json();
+            return data2?.data?.userProfileQuestionsStatus || [];
+          } catch (e2) {
+            return [];
+          }
         }
-      });
+      }.bind(null, handle), targetCount);
 
-      sendStatus(`[LeetCode] Found ${allSolved.length} solved problems. Fetching code...`);
-
-      if (allSolved.length === 0) {
-        sendStatus(`[LeetCode] No solved problems found. Try logging in again.`);
+      if (recentSubs.length === 0) {
+        sendStatus(`[LeetCode] No recent submissions found. Try logging in again.`);
         return [];
       }
 
-      // Step 2: For each solved problem, get AC submission ID + code
-      const limit = Math.min(allSolved.length, targetCount);
+      sendStatus(`[LeetCode] Found ${recentSubs.length} recent AC submissions. Fetching code...`);
+
+      // Step 2: For each recent submission, get the actual code
+      const limit = Math.min(recentSubs.length, targetCount);
 
       for (let i = 0; i < limit; i++) {
-        const prob = allSolved[i];
+        const prob = recentSubs[i];
         sendStatus(`[LeetCode] Scraping ${i + 1}/${limit}: ${prob.title}`);
 
         try {
-          // Get submission ID + code via page.evaluate(fetch) — shares cookies
-          const codeResult = await page.evaluate(async (slug) => {
-            // Step A: Get latest submissions for this problem (no status filter)
-            let subId = null;
-            try {
-              const subRes = await fetch("https://leetcode.com/graphql", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  query: 'query submissionList($questionSlug: String!, $offset: Int, $limit: Int) { submissionList(questionSlug: $questionSlug, offset: $offset, limit: $limit) { submissions { id statusDisplay lang } } }',
-                  variables: { questionSlug: slug, offset: 0, limit: 5 },
-                }),
-              });
-              const subData = await subRes.json();
-              const subs = subData?.data?.submissionList?.submissions || [];
-              const acSubs = subs.filter(s => s.statusDisplay === 'Accepted');
-              if (acSubs.length > 0) subId = acSubs[0].id;
-            } catch (e) {}
-
-            if (!subId) return null;
-
-            // Step B: Get the actual code via submissionDetails (Int! type, lang { name })
+          const codeResult = await page.evaluate(async (subId) => {
             try {
               const detailRes = await fetch("https://leetcode.com/graphql", {
                 method: "POST",
@@ -240,42 +240,18 @@ const PLATFORMS = {
               }
             } catch (e) {}
             return null;
-          }, prob.titleSlug).catch(() => null);
+          }, prob.id).catch(() => null);
 
           if (codeResult && codeResult.code) {
             solutions.push({ code: codeResult.code, problemTitle: prob.title, platform: "leetcode", tags: prob.tags || [] });
             sendStatus(`[LeetCode] Scraped ${i + 1}/${limit}: ${prob.title} ✓`);
           } else {
-            // Fallback: page scrape
-            sendStatus(`[LeetCode] Trying page scrape for ${prob.title}...`);
-            await page.goto(`https://leetcode.com/problems/${prob.titleSlug}/submissions/`, { waitUntil: "networkidle", timeout: 15000 }).catch(() => {});
-            await page.waitForTimeout(3000);
-
-            const subLink = await page.evaluate(() => {
-              const links = Array.from(document.querySelectorAll('a'));
-              for (const link of links) {
-                const href = link.getAttribute('href') || '';
-                if (href.match(/\/submissions\/\d+/)) return href.startsWith('http') ? href : `https://leetcode.com${href}`;
-              }
-              return null;
-            }).catch(() => null);
-
-            if (subLink) {
-              await page.goto(subLink, { waitUntil: "networkidle", timeout: 15000 }).catch(() => {});
-              await page.waitForTimeout(2000);
-              let code = await page.locator("pre code, .monaco-editor .view-line, pre").first().textContent({ timeout: 5000 }).catch(() => null);
-              if (code && code.trim().length > 20) {
-                solutions.push({ code: code.trim(), problemTitle: prob.title, platform: "leetcode", tags: prob.tags || [] });
-                sendStatus(`[LeetCode] Scraped ${i + 1}/${limit}: ${prob.title} ✓ (page scrape)`);
-              } else {
-                sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (no code)`);
-              }
-            } else {
-              sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (no submission link)`);
-            }
+            sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (no code)`);
           }
 
-          await page.waitForTimeout(500);
+          // Randomized jitter: 3-7 seconds between requests
+          const jitter = 3000 + Math.floor(Math.random() * 4000);
+          await page.waitForTimeout(jitter);
         } catch (e) {
           sendStatus(`[LeetCode] Skipped ${i + 1}/${limit} (error: ${e.message})`);
         }
@@ -626,13 +602,38 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken }) => {
         }
 
         const newSubs = allAcSubs.slice(0, targetCount);
+
+        // ── FAILED QUEUE: Process failed submissions first ──────────────────
+        const failedQueueKey = `${platform}FailedQueue`;
+        let failedQueue = state[failedQueueKey] || [];
+
+        // Merge failed queue items with new subs (failed first)
+        let allSubsToScrape = [];
+        if (failedQueue.length > 0) {
+          mainWindow.webContents.send("status", `[${p.name}] Processing ${failedQueue.length} failed submissions from queue...`);
+          allSubsToScrape = [...failedQueue, ...newSubs];
+        } else {
+          allSubsToScrape = newSubs;
+        }
+
         mainWindow.webContents.send("status", `[${p.name}] Found ${newSubs.length} AC submissions across ${pagesFetched} page(s). Starting code fetch (up to ${targetCount})...`);
 
         const solutions = [];
-        for (let i = 0; i < newSubs.length; i++) {
-          const sub = newSubs[i];
-          const progress = `[${p.name}] Scraping ${i + 1}/${newSubs.length}: ${p.problemName(sub)}`;
+        const newFailedQueue = [];
+        const BATCH_SIZE = 20;
+        const BATCH_PAUSE_MS = 120000; // 2 minutes
+
+        for (let i = 0; i < allSubsToScrape.length; i++) {
+          const sub = allSubsToScrape[i];
+          const progress = `[${p.name}] Scraping ${i + 1}/${allSubsToScrape.length}: ${p.problemName(sub)}`;
           mainWindow.webContents.send("status", progress);
+
+          // Batch pause: after every 20 items, wait 2 minutes
+          if (i > 0 && i % BATCH_SIZE === 0) {
+            mainWindow.webContents.send("status", `[${p.name}] Batch pause — waiting 2 minutes to avoid Cloudflare ban...`);
+            await new Promise(r => setTimeout(r, BATCH_PAUSE_MS));
+          }
+
           try {
             const code = await Promise.race([
               p.getCode(page, sub),
@@ -645,18 +646,21 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken }) => {
                 platform,
                 tags: p.tags(sub),
               });
-              mainWindow.webContents.send("status", `[${p.name}] Scraped ${i + 1}/${newSubs.length} ✓`);
+              mainWindow.webContents.send("status", `[${p.name}] Scraped ${i + 1}/${allSubsToScrape.length} ✓`);
             } else {
-              mainWindow.webContents.send("status", `[${p.name}] Skipped ${i + 1}/${newSubs.length} (no code)`);
+              mainWindow.webContents.send("status", `[${p.name}] Skipped ${i + 1}/${allSubsToScrape.length} (no code — added to failed queue)`);
+              newFailedQueue.push(sub);
             }
-            await new Promise(r => setTimeout(r, 1000));
+            // Randomized jitter: 3-7 seconds between page loads
+            const jitter = 3000 + Math.floor(Math.random() * 4000);
+            await new Promise(r => setTimeout(r, jitter));
           } catch (e) {
             if (e.message === "timeout") {
-              mainWindow.webContents.send("status", `[${p.name}] Skipped ${i + 1}/${newSubs.length} (timeout)`);
-              results.errors.push(`${p.name} ${p.problemName(sub)}: page timeout, skipped`);
+              mainWindow.webContents.send("status", `[${p.name}] Skipped ${i + 1}/${allSubsToScrape.length} (timeout — added to failed queue)`);
             } else {
-              results.errors.push(`${p.name} ${p.problemName(sub)}: ${e.message}`);
+              mainWindow.webContents.send("status", `[${p.name}] Skipped ${i + 1}/${allSubsToScrape.length} (error — added to failed queue)`);
             }
+            newFailedQueue.push(sub);
           }
         }
 
@@ -697,10 +701,13 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken }) => {
           results.perPlatform[platform] = { status: "done", count: 0 };
         }
 
-        // Only update timestamp if we actually found and uploaded solutions
-        if (solutions.length > 0) {
+        // Only update timestamp if failed queue is fully cleared
+        if (newFailedQueue.length === 0) {
           state[`${platform}LastSync`] = Math.floor(Date.now() / 1000);
+        } else {
+          mainWindow.webContents.send("status", `[${p.name}] ${newFailedQueue.length} failed submissions saved to retry queue. Timestamp not updated.`);
         }
+        state[failedQueueKey] = newFailedQueue;
       } catch (e) {
         results.errors.push(`${p.name}: ${e.message}`);
         results.perPlatform[platform] = { status: "error", count: 0 };
