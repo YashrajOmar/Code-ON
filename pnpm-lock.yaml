@@ -27,8 +27,6 @@ importers:
         specifier: ^5.7.0
         version: 5.9.3
 
-  apps/companion: {}
-
   apps/web:
     dependencies:
       '@clerk/nextjs':
@@ -37,6 +35,9 @@ importers:
       '@codeon/code-analysis':
         specifier: workspace:*
         version: link:../../packages/code-analysis
+      '@codeon/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@codeon/scrapers':
         specifier: workspace:*
         version: link:../../packages/scrapers
