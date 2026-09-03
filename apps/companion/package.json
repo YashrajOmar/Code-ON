@@ -6,9 +6,9 @@
   "author": "CodeOn",
   "private": true,
   "scripts": {
-    "start": "node_modules/.bin/electron electron/main.js",
-    "dev": "node_modules/.bin/electron electron/main.js --dev",
-    "build": "node_modules/.bin/electron-builder --win",
+    "start": "npx electron electron/main.js",
+    "dev": "npx electron electron/main.js --dev",
+    "build": "npx electron-builder --win",
     "cli": "node src/index.js"
   },
   "build": {
@@ -19,5 +19,12 @@
     "win": { "target": "nsis", "icon": "electron/icon.png" },
     "mac": { "target": "dmg", "icon": "electron/icon.png" },
     "linux": { "target": "AppImage", "icon": "electron/icon.png" }
+  },
+  "dependencies": {
+    "playwright": "^1.62.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
   }
 }

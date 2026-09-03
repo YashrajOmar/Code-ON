@@ -12,6 +12,7 @@
     "dependencies":  {
                          "@clerk/nextjs":  "^7.6.0",
                          "@codeon/code-analysis":  "workspace:*",
+                         "@codeon/core":  "workspace:*",
                          "@codeon/scrapers":  "workspace:*",
                          "@google/genai":  "^2.13.0",
                          "@libsql/client":  "^0.17.4",

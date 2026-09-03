@@ -146,3 +146,154 @@ export function hasReachedOptimal(
 ): boolean {
   return computeDistanceToOptimal(fullTrail, currentLevel) === 0;
 }
+
+// ── TrailMilestone: the output contract for the API ──────────────────────────
+
+export interface TrailMilestone {
+  tier: 'Brute Force' | 'Sub-Optimal' | 'Optimal';
+  complexity: { time: string; space: string };
+  hint: string;
+  algorithmicPivot: string;
+  level: AlgorithmicLevel;
+}
+
+export interface GenerateTrailInput {
+  signals: CodePatternSignals;
+  timeComplexity: string;
+  spaceComplexity: string;
+  editorialMarkdown: string | null;
+  problemTags: string[];
+}
+
+export interface GenerateTrailOutput {
+  currentLevel: AlgorithmicLevel;
+  milestones: TrailMilestone[];
+  currentIndex: number;
+}
+
+// ── Complexity → level mapping ───────────────────────────────────────────────
+
+function complexityToLevel(time: string, signals: CodePatternSignals): AlgorithmicLevel {
+  const t = time.toLowerCase();
+  if (t.includes('1') || t.includes('constant')) return 'optimal';
+  if (t.includes('log')) return 'binary_search';
+  if (t.includes('n²') || t.includes('n^2') || (t.includes('n') && t.includes('*') && t.includes('n'))) return 'naive_optimized';
+  if (t.includes('n log n')) return 'sorting';
+  if (t.includes('n')) {
+    if (signals.hasHashMap) return 'hash_map';
+    if (signals.hasSlidingWindow) return 'sliding_window';
+    if (signals.hasTwoPointers) return 'two_pointer';
+    return 'sorting';
+  }
+  return 'brute_force';
+}
+
+// ── Build milestones from signals + editorial ─────────────────────────────────
+
+function buildDefaultTrail(signals: CodePatternSignals, tags: string[]): TrailMilestone[] {
+  const tagList = tags.map(t => t.toLowerCase());
+  const milestones: TrailMilestone[] = [];
+
+  // Always start with brute force
+  milestones.push({
+    tier: 'Brute Force',
+    complexity: { time: 'O(n²)', space: 'O(1)' },
+    hint: 'Start with a nested loop — check all pairs.',
+    algorithmicPivot: 'Nested loop over all elements',
+    level: 'brute_force' as AlgorithmicLevel,
+  });
+
+  // Check if tags suggest specific optimizations
+  if (tagList.some(t => t.includes('sort') || t.includes('two') || t.includes('pointer'))) {
+    milestones.push({
+      tier: 'Sub-Optimal',
+      complexity: { time: 'O(n log n)', space: 'O(1)' },
+      hint: 'Sort the array first, then use two pointers.',
+      algorithmicPivot: 'Sort + two-pointer scan',
+      level: 'sorting' as AlgorithmicLevel,
+    });
+  }
+
+  if (tagList.some(t => t.includes('hash') || t.includes('map') || t.includes('array'))) {
+    milestones.push({
+      tier: 'Optimal',
+      complexity: { time: 'O(n)', space: 'O(n)' },
+      hint: 'Use a hash map for O(1) lookups in a single pass.',
+      algorithmicPivot: 'Replace inner loop with hash map lookup',
+      level: 'hash_map' as AlgorithmicLevel,
+    });
+  } else if (tagList.some(t => t.includes('dp') || t.includes('dynamic'))) {
+    milestones.push({
+      tier: 'Optimal',
+      complexity: { time: 'O(n)', space: 'O(n)' },
+      hint: 'Build a DP table to avoid recomputation.',
+      algorithmicPivot: 'Memoize overlapping subproblems',
+      level: 'dynamic_programming' as AlgorithmicLevel,
+    });
+  } else if (tagList.some(t => t.includes('binary') || t.includes('search'))) {
+    milestones.push({
+      tier: 'Optimal',
+      complexity: { time: 'O(log n)', space: 'O(1)' },
+      hint: 'Binary search on the answer space.',
+      algorithmicPivot: 'Binary search on monotonic property',
+      level: 'binary_search' as AlgorithmicLevel,
+    });
+  } else if (milestones.length === 1) {
+    milestones.push({
+      tier: 'Optimal',
+      complexity: { time: 'O(n)', space: 'O(1)' },
+      hint: 'Find a single-pass solution with careful state tracking.',
+      algorithmicPivot: 'Single pass with state tracking',
+      level: 'optimal' as AlgorithmicLevel,
+    });
+  }
+
+  return milestones;
+}
+
+// ── Extract complexity hints from editorial text ─────────────────────────────
+
+function extractEditorialHints(editorial: string): { optimalComplexity?: string; approach?: string } {
+  if (!editorial) return {};
+  const lower = editorial.toLowerCase();
+  const complexityMatch = lower.match(/(?:time complexity|complexity)[:\s]*o\(([^)]+)\)/i);
+  const approachMatch = editorial.match(/(?:approach|solution|intuition)[:\s]*([\s\S]{10,200}?)(?:\n#|\n##|complexity|$)/i);
+  return {
+    optimalComplexity: complexityMatch ? `O(${complexityMatch[1]})` : undefined,
+    approach: approachMatch ? approachMatch[1].trim() : undefined,
+  };
+}
+
+// ── Main: generateTrail ───────────────────────────────────────────────────────
+
+export function generateTrail(input: GenerateTrailInput): GenerateTrailOutput {
+  const { signals, timeComplexity, spaceComplexity, editorialMarkdown, problemTags } = input;
+
+  // 1. Detect current level from signals
+  const currentLevel = detectAlgorithmicLevel(signals);
+
+  // 2. Build milestones (from editorial if available, else from tags)
+  let milestones = buildDefaultTrail(signals, problemTags);
+
+  if (editorialMarkdown && editorialMarkdown.length > 50) {
+    const hints = extractEditorialHints(editorialMarkdown);
+    // If editorial mentions a complexity, enrich the optimal milestone
+    if (hints.optimalComplexity && milestones.length > 0) {
+      const lastMilestone = milestones[milestones.length - 1];
+      milestones[milestones.length - 1] = {
+        ...lastMilestone,
+        complexity: { time: hints.optimalComplexity, space: lastMilestone.complexity.space },
+        hint: hints.approach || lastMilestone.hint,
+      };
+    }
+  }
+
+  // 3. Find current index (which milestone the user is at)
+  const currentIndex = milestones.findIndex(m => getLevelIndex(m.level) >= getLevelIndex(currentLevel));
+
+  return {
+    currentLevel,
+    milestones,
+    currentIndex: currentIndex >= 0 ? currentIndex : 0,
+  };
+}
