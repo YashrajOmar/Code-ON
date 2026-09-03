@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import ProblemStatementView from "@/components/ProblemStatementView";
-import TrailTab from "@/components/TrailTab";
 import { useProblemStore } from "@/store/useProblemStore";
 import { useIDEStore } from "@/store/useIDEStore";
 import type { PublicScrapedProblemDTO } from "@codeon/scrapers";
@@ -15,6 +14,50 @@ export type ProblemData = PublicScrapedProblemDTO & {
   tags?: string[];
   source?: string;
 };
+
+/** Generates dynamic optimization trail steps based on problem tags & difficulty */
+function getOptimizationTrail(tags: string[], difficulty: string) {
+  const tagList = tags.map((t) => t.toLowerCase());
+
+  if (tagList.some((t) => t.includes("dp") || t.includes("dynamic"))) {
+    return [
+      { level: "recursion", label: "Brute Force O(2ⁿ)", desc: "Naive Recursive Tree Search", done: false, current: true },
+      { level: "memoization", label: "Top-Down DP O(N)", desc: "Recursion + Hash/Memoization Cache", done: false },
+      { level: "tabulation", label: "Optimal Bottom-Up O(N)", desc: "1D/2D Tabulation Space-Optimized", done: false },
+    ];
+  }
+
+  if (tagList.some((t) => t.includes("binary_search") || t.includes("binary search"))) {
+    return [
+      { level: "linear", label: "Linear Search O(N)", desc: "Sequential Search over Range", done: false, current: true },
+      { level: "binary_search", label: "Binary Search O(log N)", desc: "Binary Search on Monotonic Search Space", done: false },
+      { level: "optimal", label: "Optimal O(log N)", desc: "Binary Search with Bitwise Bounds", done: false },
+    ];
+  }
+
+  if (tagList.some((t) => t.includes("hash") || t.includes("map") || t.includes("array"))) {
+    return [
+      { level: "brute_force", label: "Brute Force O(N²)", desc: "Nested Loop Search", done: false, current: true },
+      { level: "hash_map", label: "Hash Map O(N)", desc: "Hash Map Single-Pass Lookup", done: false },
+      { level: "optimal", label: "Optimal O(N)", desc: "In-Place Single-Pass Memory-Optimized", done: false },
+    ];
+  }
+
+  if (tagList.some((t) => t.includes("sort") || t.includes("two_pointer"))) {
+    return [
+      { level: "brute_force", label: "Brute Force O(N²)", desc: "Pairwise Search", done: false, current: true },
+      { level: "sorting", label: "Sorting O(N log N)", desc: "Sort + Two-Pointer Technique", done: false },
+      { level: "optimal", label: "Optimal O(N)", desc: "Radix / Counting Sort or Linear Scan", done: false },
+    ];
+  }
+
+  // Default dynamic fallback
+  return [
+    { level: "naive", label: "Naive Approach", desc: "Direct Simulation / Brute Force", done: false, current: true },
+    { level: "pattern", label: "Pattern Optimization", desc: "Identify Optimal Data Structure", done: false },
+    { level: "optimal", label: `Optimal Solution (${difficulty.toUpperCase()})`, desc: "Scalable Target Complexity", done: false },
+  ];
+}
 
 interface ProblemPanelProps {
   onProblemLoaded?: (p: ProblemData) => void;
@@ -306,7 +349,34 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
 
             {tab === "trail" && (
               <div className="animate-fade-in">
-                <TrailTab problemUrl={problem.url} problemTags={problem.tags || []} code={editorCode} />
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>
+                    Optimization Trail
+                  </div>
+                  <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                    Target progression for {problem.title} {(problem.tags || []).join(", ") || "General"}.
+                  </div>
+                </div>
+                {getOptimizationTrail(problem.tags || [], problem.difficulty || "medium").map((step, i) => (
+                  <div key={step.level} style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+                    <div style={{
+                      width: 24, height: 24, borderRadius: "50%",
+                      background: step.done ? "var(--brand-emerald)" : step.current ? "var(--brand-violet)" : "var(--surface-4)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 11, color: "white", fontWeight: 700, flexShrink: 0
+                    }}>
+                      {step.done ? "✓" : i + 1}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: step.current ? 600 : 400, color: step.current ? "var(--text-primary)" : "var(--text-muted)" }}>
+                        {step.desc} <span style={{ color: "var(--brand-cyan)", fontFamily: "JetBrains Mono", fontSize: 11 }}>({step.label})</span>
+                      </div>
+                      {step.current && (
+                        <div style={{ fontSize: 11, color: "var(--brand-violet-light)", marginTop: 2 }}>← Current target</div>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
 
