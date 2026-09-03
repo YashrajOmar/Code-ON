@@ -400,8 +400,9 @@ ipcMain.handle("validate-handle", async (_, { platform, handle }) => {
   try {
     if (platform === "codeforces") {
       const res = await fetch(`https://codeforces.com/api/user.info?handles=${handle}`);
+      if (!res.ok) return { valid: false, error: `HTTP ${res.status}` };
       const data = await res.json();
-      return data.status === "OK";
+      return { valid: data.status === "OK", error: data.status === "OK" ? undefined : data.comment || "Handle not found" };
     }
     if (platform === "leetcode") {
       const res = await fetch("https://leetcode.com/graphql", {
@@ -412,53 +413,99 @@ ipcMain.handle("validate-handle", async (_, { platform, handle }) => {
           variables: { username: handle },
         }),
       });
+      if (!res.ok) return { valid: false, error: `HTTP ${res.status}` };
       const data = await res.json();
-      return data?.data?.matchedUser?.username === handle;
+      return { valid: data?.data?.matchedUser?.username === handle, error: undefined };
     }
     if (platform === "atcoder") {
       const res = await fetch(`https://atcoder.jp/users/${handle}/history/json`);
-      return res.ok;
+      return { valid: res.ok, error: res.ok ? undefined : "Handle not found" };
     }
-    // Unknown platform — allow it (don't block unsupported platforms)
-    return true;
-  } catch {
-    return false;
+    if (platform === "codechef") {
+      const res = await fetch(`https://www.codechef.com/users/${handle}`);
+      return { valid: res.ok, error: res.ok ? undefined : "Handle not found" };
+    }
+    if (platform === "hackerrank") {
+      const res = await fetch(`https://www.hackerrank.com/rest/contests/master/hacker/${handle}/profile`);
+      if (!res.ok) return { valid: false, error: "Handle not found" };
+      const data = await res.json();
+      return { valid: data?.status === true, error: undefined };
+    }
+    if (platform === "spoj") {
+      const res = await fetch(`https://www.spoj.com/users/${handle}/`);
+      return { valid: res.ok, error: res.ok ? undefined : "Handle not found" };
+    }
+    // Unknown platform — allow it
+    return { valid: true, error: undefined };
+  } catch (e) {
+    // CRITICAL: Always return a resolved object, NEVER throw — prevents IPC hang
+    return { valid: false, error: e?.message || "Network error" };
   }
 });
 
 // ── Check Login Status (cookie verification) ────────────────────────────────
+
+// Shared session cookie map for all platforms
+const SESSION_COOKIE_MAP = {
+  codeforces: ['X-User-Sn', 'rc', 'CF_ORG_ID'],
+  leetcode: ['LEETCODE_SESSION', 'csrftoken'],
+  atcoder: ['REVEL_SESSION', 'ARBCID'],
+  codechef: ['session', 'CCA'],
+  hackerrank: ['_hrank_session', 'hackajob_session'],
+  spoj: ['SPOJ_SESSION', 'spoj_session'],
+};
+
+async function checkCookiesForPlatform(platform) {
+  let cookies = [];
+
+  // If browserContext exists, read cookies directly (fast path)
+  if (browserContext) {
+    try {
+      cookies = await browserContext.cookies();
+    } catch {
+      cookies = [];
+    }
+  } else if (existsSync(PROFILE_DIR)) {
+    // CATCH-22 FIX: browserContext is null but cookies exist on disk.
+    // Temporarily launch headless persistent context, read cookies, close.
+    try {
+      const { chromium } = require("playwright");
+      const tempContext = await chromium.launchPersistentContext(PROFILE_DIR, {
+        headless: true,
+        channel: "chrome",
+        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
+      });
+      cookies = await tempContext.cookies();
+      await tempContext.close();
+    } catch (e) {
+      console.log(`[LoginCheck] ${platform}: Failed to read cookies from disk: ${e.message}`);
+      return { loggedIn: false };
+    }
+  } else {
+    // No browser context, no profile directory → not logged in
+    return { loggedIn: false };
+  }
+
+  const required = SESSION_COOKIE_MAP[platform];
+  if (!required || required.length === 0) {
+    return { loggedIn: false };
+  }
+
+  // Check for EXACT cookie name match (session identifiers only)
+  const foundCookies = cookies.filter(c => required.some(r => c.name === r));
+  const hasSession = foundCookies.length > 0;
+
+  console.log(`[LoginCheck] ${platform}: ${cookies.length} total cookies, ${foundCookies.length} session cookies, names: [${foundCookies.map(c => c.name).join(', ')}] → loggedIn: ${hasSession}`);
+
+  return { loggedIn: hasSession };
+}
+
 ipcMain.handle("check-login-status", async (_, { platform }) => {
   try {
-    // Use EXISTING browserContext only — never create one just to check cookies
-    if (!browserContext) {
-      console.log(`[LoginCheck] ${platform}: No browser open → not logged in`);
-      return { loggedIn: false };
-    }
-
-    const cookies = await browserContext.cookies();
-
-    // Explicit session cookie targeting — exact name match only
-    const sessionCookieMap = {
-      codeforces: ['X-User-Sn', 'rc', 'CF_ORG_ID'],
-      leetcode: ['LEETCODE_SESSION', 'csrftoken'],
-      atcoder: ['REVEL_SESSION', 'ARBCID'],
-    };
-
-    const required = sessionCookieMap[platform];
-    // Unknown platforms — return false, not true (prevents false positives)
-    if (!required || required.length === 0) {
-      console.log(`[LoginCheck] ${platform}: No known session cookies → not logged in`);
-      return { loggedIn: false };
-    }
-
-    // Check for EXACT cookie name match (session identifiers only)
-    const foundCookies = cookies.filter(c => required.some(r => c.name === r));
-    const hasSession = foundCookies.length > 0;
-
-    console.log(`[LoginCheck] ${platform}: ${cookies.length} total cookies, ${foundCookies.length} session cookies, names: [${foundCookies.map(c => c.name).join(', ')}] → loggedIn: ${hasSession}`);
+    const result = await checkCookiesForPlatform(platform);
 
     // If logged in, purge the failed queue for this platform
-    if (hasSession) {
+    if (result.loggedIn) {
       const state = loadState();
       const failedQueueKey = `${platform}FailedQueue`;
       if (state[failedQueueKey] && state[failedQueueKey].length > 0) {
@@ -467,7 +514,7 @@ ipcMain.handle("check-login-status", async (_, { platform }) => {
       }
     }
 
-    return { loggedIn: hasSession };
+    return result;
   } catch (e) {
     console.error(`[LoginCheck] ${platform}: Error:`, e.message);
     return { loggedIn: false };
@@ -573,31 +620,35 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken, isAutoSyn
   const authenticatedPlatforms = new Set();
   let cookies = [];
 
-  // Only check cookies if browserContext already exists — never create one just to check
+  // Check cookies — uses existing browserContext, or reads from disk if needed
   if (browserContext) {
     try {
-      // browserContext IS a BrowserContext — call .cookies() directly, NOT .contexts()[0]
       cookies = await browserContext.cookies();
+    } catch {
+      cookies = [];
+    }
+  } else if (existsSync(PROFILE_DIR)) {
+    // browserContext is null but profile exists on disk — read cookies temporarily
+    try {
+      const { chromium } = require("playwright");
+      const tempContext = await chromium.launchPersistentContext(PROFILE_DIR, {
+        headless: true, channel: "chrome",
+        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
+      });
+      cookies = await tempContext.cookies();
+      await tempContext.close();
     } catch {
       cookies = [];
     }
   }
 
-  const sessionCookieMap = {
-    codeforces: ['X-User-Sn', 'rc', 'CF_ORG_ID'],
-    leetcode: ['LEETCODE_SESSION', 'csrftoken'],
-    atcoder: ['REVEL_SESSION', 'ARBCID'],
-  };
-
   for (const [platform, handle] of Object.entries(handles)) {
     if (!handle || !handle.trim()) continue;
-    const required = sessionCookieMap[platform] || [];
-    if (required.length === 0) {
-      authenticatedPlatforms.add(platform);
-      allAuthFailed = false;
+    const required = SESSION_COOKIE_MAP[platform];
+    if (!required || required.length === 0) {
+      // Unknown platform — skip, don't mark as authenticated
       continue;
     }
-    // Check for exact session cookie name matches only
     const hasSession = cookies.some(c => required.some(r => c.name === r));
     if (hasSession) {
       authenticatedPlatforms.add(platform);

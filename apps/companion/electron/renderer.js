@@ -224,19 +224,19 @@ document.querySelectorAll(".login-btn").forEach(btn => {
       btn.disabled = true;
       if (handleInput) handleInput.disabled = true;
 
-      const isValid = await window.codeon.validateHandle({ platform, handle });
-      if (!isValid) {
-        addStatus(`[${platformName}] Invalid handle "${handle}". Check your username on ${platformName}.`, "error");
+      const validationResult = await window.codeon.validateHandle({ platform, handle });
+      if (!validationResult.valid) {
+        addStatus(`[${platformName}] Invalid handle "${handle}". ${validationResult.error || "Check your username."}`, "error");
         btn.textContent = "Login";
         return;
       }
 
-      const result = await window.codeon.login({ platform });
-      if (result.success) {
+      const loginResult = await window.codeon.login({ platform });
+      if (loginResult.success) {
         btn.textContent = "Check Login";
         addStatus(`[${platformName}] Chrome tab opened. Log in, close the tab, then click "Check Login".`, "info");
       } else {
-        addStatus(`[${platformName}] Login failed: ${result.error}`, "error");
+        addStatus(`[${platformName}] Login failed: ${loginResult.error}`, "error");
         btn.textContent = "Login";
       }
     } catch (e) {
