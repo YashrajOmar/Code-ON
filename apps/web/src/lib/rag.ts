@@ -28,7 +28,7 @@ export interface CodingStyleProfile {
 }
 
 const TOP_K = 5;
-const MAX_DISTANCE = 2.0;
+const MAX_DISTANCE = 0.35;
 
 export async function retrieveUserTopicProfile(
   userId: string,
@@ -95,9 +95,12 @@ export async function retrieveUserTopicProfile(
     if (withCode.length > 0) {
       parts.push("\n=== USER'S ACTUAL CODING STYLE (from their past accepted submissions) ===");
       for (const m of withCode.slice(0, 2)) {
-        const snippet = m.codeSnippet!.length > 800
-          ? m.codeSnippet!.substring(0, 800) + '\n// ... (truncated)'
-          : m.codeSnippet!;
+        let snippet = m.codeSnippet!;
+        if (snippet.length > 800) {
+          const truncated = snippet.substring(0, 800);
+          const lastNewline = truncated.lastIndexOf('\n');
+          snippet = (lastNewline > 400 ? truncated.substring(0, lastNewline) : truncated) + '\n// ... (truncated)';
+        }
         parts.push(`\nFrom ${m.topic} problems:`);
         parts.push('```cpp');
         parts.push(snippet);
@@ -105,7 +108,7 @@ export async function retrieveUserTopicProfile(
       }
     } else {
       // No user code available — note this so the LLM knows
-      parts.push("\n(Note: User's actual submission code not available. Use clean, optimized C++ with raw array indexing — avoid substr() in loops as it's O(N) per call.)");
+      parts.push("\n(Note: User's actual submission code not available. Use clean, optimized C++ with fast I/O, bits/stdc++.h, and short variable names.)");
     }
 
     return {

@@ -4,6 +4,7 @@ import { encryptKey, decryptKey } from '@/lib/crypto';
 import { embedText, toVectorLiteral } from '@/lib/embeddings';
 import { getAuthUser, unauthorized } from '@/lib/auth';
 import { rateLimit, RATE_LIMITS, tooManyRequests } from '@/lib/rate-limit';
+import { CodeAnalysisEngine } from '@codeon/code-analysis';
 
 /**
  * GET /api/settings/seed-code
@@ -134,23 +135,47 @@ export async function POST(req: Request) {
       const topic = tags[0] || 'general';
       const ragKey = `${topic}_${problemTitle.substring(0, 30).replace(/[^a-z0-9]/gi, '_')}`;
 
-      // Analyze the code for style signals
+      // Analyze the code for style signals using Tree-sitter AST (not regex)
       const styleSignals: string[] = [];
-      const lowerCode = code.toLowerCase();
+      let complexityInfo = 'Unknown';
 
-      if (/ios::sync_with_stdio|scanf|printf|cin\.tie/.test(code)) styleSignals.push('fast I/O');
-      if (/unordered_map|map|set/.test(lowerCode)) styleSignals.push('STL containers');
-      if (/sort\(|lower_bound|upper_bound|binary_search/.test(lowerCode)) styleSignals.push('STL algorithms');
-      if (/long\s+long|ll\s|int64/.test(lowerCode)) styleSignals.push('long long');
-      if (/#define\s+\w/.test(code)) styleSignals.push('macros');
-      if (/for\s*\(\s*(?:auto|int)\s+\w+\s*:\s/.test(code)) styleSignals.push('range-based loops');
-      if (/priority_queue|make_heap/.test(lowerCode)) styleSignals.push('heaps');
-      if (/vector<vector|dp\[|memo\[/.test(lowerCode)) styleSignals.push('2D arrays/DP');
+      try {
+        const engine = new CodeAnalysisEngine();
+        const report = await engine.analyse({ code, language: 'cpp17' });
+
+        // Extract structural signals from AST (immune to comments/strings)
+        if (report.optimization.hasHashMap) styleSignals.push('hash map');
+        if (report.optimization.hasSortingCall) styleSignals.push('sorting');
+        if (report.optimization.hasBinarySearch) styleSignals.push('binary search');
+        if (report.optimization.hasTwoPointers) styleSignals.push('two pointers');
+        if (report.optimization.hasDPTable) styleSignals.push('DP');
+        if (report.optimization.hasSlidingWindow) styleSignals.push('sliding window');
+        if (report.optimization.hasHeap) styleSignals.push('heap');
+        if (report.optimization.hasPrefixSum) styleSignals.push('prefix sum');
+        if (report.optimization.hasAdvancedDS) styleSignals.push('advanced DS');
+        if (report.optimization.hasGraphStructure) styleSignals.push('graph');
+        if (report.optimization.hasDSU) styleSignals.push('DSU');
+        if (report.optimization.hasMonotonicStructure) styleSignals.push('monotonic');
+
+        // Style signals from AST
+        if (report.style.usesModernFeatures) styleSignals.push('modern C++ (auto, range-for)');
+        if (report.style.usesHelperFunctions) styleSignals.push('helper functions');
+        if (report.style.singleLetterVariables.length > 2) styleSignals.push('short variable names');
+        if (report.style.usesDescriptiveNames) styleSignals.push('descriptive names');
+        if (report.style.commentDensity > 0.5) styleSignals.push('well-commented');
+
+        // Complexity
+        complexityInfo = `${report.complexity.timeComplexity} time, ${report.complexity.spaceComplexity} space`;
+      } catch (e) {
+        // Tree-sitter failed — minimal fallback
+        styleSignals.push('basic');
+      }
 
       const styleSummary = `Coding style from pasted solution "${problemTitle}":
 - Platform: ${platform}
 - URL: ${sol.url || 'N/A'}
 - Language: C++
+- Complexity: ${complexityInfo}
 - Patterns used: ${styleSignals.join(', ') || 'basic'}
 - Code length: ${code.length} chars
 - ${tags.length > 0 ? `Tags: ${tags.join(', ')}` : 'No tags provided'}`;

@@ -44,6 +44,31 @@ export default function HintPanel({ problemTitle, problemUrl, problemStatement, 
   const [toastError, setToastError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // ── Persist conversation to localStorage (survives refresh/back-button) ──────
+  const conversationKey = problemUrl ? `codeon_hints_${problemUrl}` : 'codeon_hints_default';
+
+  // Load conversation from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(conversationKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setHints(parsed);
+        }
+      }
+    } catch {}
+  }, [conversationKey]);
+
+  // Save conversation to localStorage whenever hints change
+  useEffect(() => {
+    try {
+      if (hints.length > 0) {
+        localStorage.setItem(conversationKey, JSON.stringify(hints));
+      }
+    } catch {}
+  }, [hints, conversationKey]);
+
   // Automatically hide toast after 5s
   useEffect(() => {
     if (toastError) {

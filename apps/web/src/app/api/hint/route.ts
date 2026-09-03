@@ -104,6 +104,18 @@ function assessStructure(report: {
   };
 }
 
+// ── Safe truncation (cuts at line boundary, not mid-statement) ────────────────
+
+function safeTruncate(text: string, maxChars: number): string {
+  if (!text || text.length <= maxChars) return text || '';
+  const truncated = text.substring(0, maxChars);
+  const lastNewline = truncated.lastIndexOf('\n');
+  if (lastNewline > maxChars * 0.5) {
+    return truncated.substring(0, lastNewline) + '\n// ... (truncated)';
+  }
+  return truncated + '... (truncated)';
+}
+
 // ── Editorial grounding (DB only) ─────────────────────────────────────────────
 
 interface EditorialGrounding {
@@ -248,15 +260,15 @@ ${assessment.raw}`
     const systemPrompt = `You are CodeOn, a real-time coding mentor. You're not a rule-based bot — you're a senior competitive programmer who knows this student personally.
 
 You're mentoring them on: ${problemTitle || 'a coding problem'}
-${cleanStatement.substring(0, 800)}
+${safeTruncate(cleanStatement, 800)}
 
 Here's what you know that the student doesn't (use silently):
-- Editorial: ${grounding.editorial === 'Not available' ? 'N/A — infer the optimal approach from the problem' : grounding.editorial.substring(0, 1500)}
-- Reference solutions: ${grounding.solutions === 'Not available' ? 'N/A' : grounding.solutions.substring(0, 800)}
+- Editorial: ${grounding.editorial === 'Not available' ? 'N/A — infer the optimal approach from the problem' : safeTruncate(grounding.editorial, 1500)}
+- Reference solutions: ${grounding.solutions === 'Not available' ? 'N/A' : safeTruncate(grounding.solutions, 800)}
 
 Their current code:
 \`\`\`${language || 'cpp'}
-${code ? code.substring(0, 1500) : 'No code yet'}
+${code ? safeTruncate(code, 1500) : 'No code yet'}
 \`\`\`
 
 Code analysis (your assessment):

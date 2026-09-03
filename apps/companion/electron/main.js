@@ -607,6 +607,10 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken }) => {
         const failedQueueKey = `${platform}FailedQueue`;
         let failedQueue = state[failedQueueKey] || [];
 
+        // ── RESUME INDEX: For mid-sync interruption recovery ─────────────────
+        const resumeIndexKey = `${platform}ResumeIndex`;
+        let resumeIndex = state[resumeIndexKey] || 0;
+
         // Merge failed queue items with new subs (failed first)
         let allSubsToScrape = [];
         if (failedQueue.length > 0) {
@@ -616,20 +620,48 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken }) => {
           allSubsToScrape = newSubs;
         }
 
-        mainWindow.webContents.send("status", `[${p.name}] Found ${newSubs.length} AC submissions across ${pagesFetched} page(s). Starting code fetch (up to ${targetCount})...`);
+        mainWindow.webContents.send("status", `[${p.name}] Found ${newSubs.length} new AC submissions. Starting code fetch (up to ${targetCount})...`);
 
-        const solutions = [];
-        const newFailedQueue = [];
         const BATCH_SIZE = 20;
         const BATCH_PAUSE_MS = 120000; // 2 minutes
+        let totalScraped = 0;
+        let maxTimestamp = lastSync;
+        let batchSolutions = [];
+        const newFailedQueue = [];
 
-        for (let i = 0; i < allSubsToScrape.length; i++) {
+        for (let i = resumeIndex; i < allSubsToScrape.length; i++) {
           const sub = allSubsToScrape[i];
-          const progress = `[${p.name}] Scraping ${i + 1}/${allSubsToScrape.length}: ${p.problemName(sub)}`;
+          const isFailedRetry = i < failedQueue.length;
+          const progress = `[${p.name}] Scraping ${i + 1}/${allSubsToScrape.length}: ${p.problemName(sub)}${isFailedRetry ? ' (retry)' : ''}`;
           mainWindow.webContents.send("status", progress);
 
           // Batch pause: after every 20 items, wait 2 minutes
-          if (i > 0 && i % BATCH_SIZE === 0) {
+          if (i > resumeIndex && (i - resumeIndex) % BATCH_SIZE === 0) {
+            // Upload current batch before pausing
+            if (batchSolutions.length > 0) {
+              mainWindow.webContents.send("status", `[${p.name}] Uploading batch of ${batchSolutions.length} solutions...`);
+              try {
+                const res = await fetch(`${codeonUrl}/api/settings/seed-code`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
+                  body: JSON.stringify({ solutions: batchSolutions }),
+                });
+                const data = await res.json();
+                if (data.success) {
+                  results.total += batchSolutions.length;
+                  mainWindow.webContents.send("status", `[${p.name}] Batch uploaded ✓ (${batchSolutions.length} solutions)`);
+                }
+              } catch (e) {
+                results.errors.push(`${p.name} batch upload failed: ${e.message}`);
+              }
+              batchSolutions = [];
+            }
+
+            // Save progress so we can resume if app is killed
+            state[resumeIndexKey] = i;
+            state[failedQueueKey] = newFailedQueue;
+            saveState(state);
+
             mainWindow.webContents.send("status", `[${p.name}] Batch pause — waiting 2 minutes to avoid Cloudflare ban...`);
             await new Promise(r => setTimeout(r, BATCH_PAUSE_MS));
           }
@@ -640,16 +672,23 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken }) => {
               new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 15000)),
             ]);
             if (code && code.trim().length > 20) {
-              solutions.push({
+              batchSolutions.push({
                 code: code.trim(),
                 problemTitle: p.problemName(sub),
                 platform,
                 tags: p.tags(sub),
+                url: platform === 'codeforces'
+                  ? `https://codeforces.com/problemset/problem/${sub.problem.contestId}/${sub.problem.index}`
+                  : undefined,
               });
+              totalScraped++;
+              // Track max timestamp for lastSync advancement
+              const ts = p.timestamp(sub);
+              if (ts > maxTimestamp) maxTimestamp = ts;
               mainWindow.webContents.send("status", `[${p.name}] Scraped ${i + 1}/${allSubsToScrape.length} ✓`);
             } else {
               mainWindow.webContents.send("status", `[${p.name}] Skipped ${i + 1}/${allSubsToScrape.length} (no code — added to failed queue)`);
-              newFailedQueue.push(sub);
+              newFailedQueue.push({ ...sub, _retryCount: (sub._retryCount || 0) + 1 });
             }
             // Randomized jitter: 3-7 seconds between page loads
             const jitter = 3000 + Math.floor(Math.random() * 4000);
@@ -660,54 +699,45 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken }) => {
             } else {
               mainWindow.webContents.send("status", `[${p.name}] Skipped ${i + 1}/${allSubsToScrape.length} (error — added to failed queue)`);
             }
-            newFailedQueue.push(sub);
+            newFailedQueue.push({ ...sub, _retryCount: (sub._retryCount || 0) + 1 });
           }
         }
 
-        if (solutions.length > 0) {
-          mainWindow.webContents.send("status", `Uploading ${solutions.length} ${p.name} solutions...`);
+        // Upload final batch
+        if (batchSolutions.length > 0) {
+          mainWindow.webContents.send("status", `[${p.name}] Uploading final batch of ${batchSolutions.length} solutions...`);
           try {
-            const webhookSecret = authToken;
-            mainWindow.webContents.send("status", `Uploading to ${codeonUrl}/api/settings/seed-code...`);
             const res = await fetch(`${codeonUrl}/api/settings/seed-code`, {
               method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${webhookSecret}`,
-              },
-              body: JSON.stringify({ solutions }),
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
+              body: JSON.stringify({ solutions: batchSolutions }),
             });
-            const resText = await res.text();
-            let data;
-            try { data = JSON.parse(resText); } catch {
-              mainWindow.webContents.send("status", `[${p.name}] Upload failed: server returned HTML (not JSON). Is CodeOn running?`);
-              results.errors.push(`${p.name} upload failed: server returned non-JSON response`);
-              results.perPlatform[platform] = { status: "upload_error", count: 0 };
-            }
-            if (data && data.success) {
-              results.total += solutions.length;
-              results.perPlatform[platform] = { status: "done", count: solutions.length };
-              mainWindow.webContents.send("status", `[${p.name}] ${solutions.length} solutions uploaded ✓`);
-            } else if (data) {
-              mainWindow.webContents.send("status", `[${p.name}] Upload failed: ${data.error || "Unknown error"}`);
-              results.errors.push(`${p.name} upload failed: ${data.error || "Unknown error"}`);
-              results.perPlatform[platform] = { status: "upload_error", count: 0 };
+            const data = await res.json();
+            if (data.success) {
+              results.total += batchSolutions.length;
+              mainWindow.webContents.send("status", `[${p.name}] Final batch uploaded ✓ (${batchSolutions.length} solutions)`);
             }
           } catch (e) {
-            results.errors.push(`${p.name} upload failed: ${e.message}`);
-            results.perPlatform[platform] = { status: "upload_error", count: 0 };
+            results.errors.push(`${p.name} final batch upload failed: ${e.message}`);
           }
-        } else {
-          results.perPlatform[platform] = { status: "done", count: 0 };
         }
 
-        // Only update timestamp if failed queue is fully cleared
-        if (newFailedQueue.length === 0) {
-          state[`${platform}LastSync`] = Math.floor(Date.now() / 1000);
-        } else {
-          mainWindow.webContents.send("status", `[${p.name}] ${newFailedQueue.length} failed submissions saved to retry queue. Timestamp not updated.`);
+        results.perPlatform[platform] = { status: "done", count: totalScraped };
+
+        // Remove items that failed 3+ times (permanently failed)
+        const permanentFailures = newFailedQueue.filter(f => (f._retryCount || 0) >= 3);
+        const retriableFailures = newFailedQueue.filter(f => (f._retryCount || 0) < 3);
+        if (permanentFailures.length > 0) {
+          mainWindow.webContents.send("status", `[${p.name}] ${permanentFailures.length} submissions permanently failed (3+ retries) — removed from queue.`);
         }
-        state[failedQueueKey] = newFailedQueue;
+
+        // Advance lastSyncTimestamp to max successful timestamp (decoupled from failed queue)
+        if (totalScraped > 0 && maxTimestamp > lastSync) {
+          state[`${platform}LastSync`] = maxTimestamp;
+        }
+        state[failedQueueKey] = retriableFailures;
+        state[resumeIndexKey] = 0; // Reset resume index for next sync
+        saveState(state);
       } catch (e) {
         results.errors.push(`${p.name}: ${e.message}`);
         results.perPlatform[platform] = { status: "error", count: 0 };
