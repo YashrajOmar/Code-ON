@@ -394,7 +394,7 @@ async function fetchCFEditorialFromUrl(tutorialUrl: string): Promise<string | un
     if (pageRes.ok) {
       const pageHtml = await pageRes.text();
       const $page = cheerio.load(pageHtml);
-      const $typo = $page('.ttypography');
+      const $typo = $page('div.ttypography').first();
       if (!$typo.length) {
         // Cloudflare blocked — try Jina
         try {
@@ -402,7 +402,7 @@ async function fetchCFEditorialFromUrl(tutorialUrl: string): Promise<string | un
           if (jinaRes.ok) {
             const jinaHtml = await jinaRes.text();
             const $jina = cheerio.load(jinaHtml);
-            const $jtypo = $jina('.ttypography');
+            const $jtypo = $jina('div.ttypography').first();
             if ($jtypo.length) {
               $jtypo.find('pre, code').each((_, el) => { const $el = $jina(el); $el.html(($el.html() || '').replace(/</g, '<').replace(/>/g, '>')); });
               const content = $jtypo.html() || '';
