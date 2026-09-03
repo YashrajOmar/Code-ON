@@ -16,10 +16,10 @@ const scrapedCountEl = document.getElementById("scrapedCount");
 const uploadedCountEl = document.getElementById("uploadedCount");
 const failedCountEl = document.getElementById("failedCount");
 
-// Load persistent uploaded count from localStorage
+// Total trained count — default to 0, NOT hardcoded. Only updates from real sync.
 try {
-  persistentUploaded = parseInt(localStorage.getItem("codeon_total_uploaded") || "0");
-} catch {}
+  persistentUploaded = parseInt(localStorage.getItem("codeon_total_uploaded") || "0") || 0;
+} catch { persistentUploaded = 0; }
 const totalUploadedEl = document.getElementById("totalUploaded");
 if (totalUploadedEl) totalUploadedEl.textContent = persistentUploaded;
 
@@ -222,6 +222,7 @@ document.querySelectorAll(".login-btn").forEach(btn => {
     try {
       btn.textContent = "Opening...";
       btn.disabled = true;
+      if (handleInput) handleInput.disabled = true;
 
       const isValid = await window.codeon.validateHandle({ platform, handle });
       if (!isValid) {
@@ -242,8 +243,9 @@ document.querySelectorAll(".login-btn").forEach(btn => {
       addStatus(`[${platformName}] Error: ${e.message || "Unknown error"}`, "error");
       btn.textContent = "Login";
     } finally {
-      // ALWAYS re-enable the button, no matter what
+      // ALWAYS re-enable BOTH the button AND the input field
       btn.disabled = false;
+      if (handleInput) handleInput.disabled = false;
     }
   });
 });
@@ -257,8 +259,11 @@ if (clearDataBtn) {
     clearDataBtn.disabled = true;
     const result = await window.codeon.clearLocalData();
     if (result.success) {
+      // Clear localStorage (removes hardcoded "379" and any stale counts)
+      try { localStorage.clear(); } catch {}
       addStatus("All local data cleared. Restarting...", "success");
-      setTimeout(() => { window.location.reload(); }, 2000);
+      // Reset all UI state immediately + reload
+      setTimeout(() => { window.location.reload(); }, 1000);
     } else {
       addStatus("Failed to clear data: " + (result.error || "Unknown"), "error");
       clearDataBtn.textContent = "Clear All Local Data";

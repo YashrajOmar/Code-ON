@@ -431,25 +431,31 @@ ipcMain.handle("check-login-status", async (_, { platform }) => {
   try {
     // Use EXISTING browserContext only — never create one just to check cookies
     if (!browserContext) {
+      console.log(`[LoginCheck] ${platform}: No browser open → not logged in`);
       return { loggedIn: false };
     }
-    // browserContext IS a BrowserContext (from launchPersistentContext).
-    // Do NOT call browserContext.contexts() — that method doesn't exist on BrowserContext.
-    // Call browserContext.cookies() directly.
+
     const cookies = await browserContext.cookies();
 
-    // Explicit session cookie targeting — check for exact names, not domain includes
+    // Explicit session cookie targeting — exact name match only
     const sessionCookieMap = {
       codeforces: ['X-User-Sn', 'rc', 'CF_ORG_ID'],
       leetcode: ['LEETCODE_SESSION', 'csrftoken'],
       atcoder: ['REVEL_SESSION', 'ARBCID'],
     };
 
-    const required = sessionCookieMap[platform] || [];
-    if (required.length === 0) return { loggedIn: true };
+    const required = sessionCookieMap[platform];
+    // Unknown platforms — return false, not true (prevents false positives)
+    if (!required || required.length === 0) {
+      console.log(`[LoginCheck] ${platform}: No known session cookies → not logged in`);
+      return { loggedIn: false };
+    }
 
-    // Check for exact cookie name matches (session identifiers only)
-    const hasSession = cookies.some(c => required.some(r => c.name === r));
+    // Check for EXACT cookie name match (session identifiers only)
+    const foundCookies = cookies.filter(c => required.some(r => c.name === r));
+    const hasSession = foundCookies.length > 0;
+
+    console.log(`[LoginCheck] ${platform}: ${cookies.length} total cookies, ${foundCookies.length} session cookies, names: [${foundCookies.map(c => c.name).join(', ')}] → loggedIn: ${hasSession}`);
 
     // If logged in, purge the failed queue for this platform
     if (hasSession) {
@@ -462,7 +468,8 @@ ipcMain.handle("check-login-status", async (_, { platform }) => {
     }
 
     return { loggedIn: hasSession };
-  } catch {
+  } catch (e) {
+    console.error(`[LoginCheck] ${platform}: Error:`, e.message);
     return { loggedIn: false };
   }
 });
