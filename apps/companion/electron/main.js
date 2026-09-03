@@ -447,18 +447,15 @@ ipcMain.handle("validate-handle", async (_, { platform, handle }) => {
 
 // Shared session cookie map for all platforms
 const SESSION_COOKIE_MAP = {
-  codeforces: ['X-User-Sn', 'rc', 'CF_ORG_ID'],
-  leetcode: ['LEETCODE_SESSION', 'csrftoken'],
-  atcoder: ['REVEL_SESSION', 'ARBCID'],
-  codechef: ['session', 'CCA'],
-  hackerrank: ['_hrank_session', 'hackajob_session'],
-  spoj: ['SPOJ_SESSION', 'spoj_session'],
+  codeforces: { cookies: ['X-User-Sn', 'rc', 'CF_ORG_ID'], domains: ['codeforces.com'] },
+  leetcode: { cookies: ['LEETCODE_SESSION', 'csrftoken'], domains: ['leetcode.com'] },
+  atcoder: { cookies: ['REVEL_SESSION', 'ARBCID'], domains: ['atcoder.jp'] },
+  codechef: { cookies: ['session', 'CCA'], domains: ['codechef.com'] },
+  hackerrank: { cookies: ['_hrank_session', 'hackajob_session'], domains: ['hackerrank.com'] },
+  spoj: { cookies: ['SPOJ_SESSION', 'spoj_session'], domains: ['spoj.com'] },
 };
 
 async function checkCookiesForPlatform(platform) {
-  // Read cookies from existing browserContext ONLY.
-  // Never launch a temp context — it conflicts with the profile lock
-  // if Chrome is already running, and crashes if it's not.
   if (!browserContext) {
     return { loggedIn: false };
   }
@@ -470,17 +467,30 @@ async function checkCookiesForPlatform(platform) {
     return { loggedIn: false };
   }
 
-  const required = SESSION_COOKIE_MAP[platform];
-  if (!required || required.length === 0) {
+  const config = SESSION_COOKIE_MAP[platform];
+  if (!config) {
     return { loggedIn: false };
   }
 
-  const foundCookies = cookies.filter(c => required.some(r => c.name === r));
-  const hasSession = foundCookies.length > 0;
+  // Strategy 1: Exact session cookie name match
+  const foundCookies = cookies.filter(c => config.cookies.some(r => c.name === r));
+  let loggedIn = foundCookies.length > 0;
 
-  console.log(`[LoginCheck] ${platform}: ${cookies.length} total cookies, ${foundCookies.length} session cookies, names: [${foundCookies.map(c => c.name).join(', ')}] → loggedIn: ${hasSession}`);
+  // Strategy 2: Domain-based fallback — if exact name match failed, check if
+  // ANY cookies exist for the platform's domain (means user at least visited + logged in)
+  if (!loggedIn) {
+    const domainCookies = cookies.filter(c =>
+      config.domains.some(d => c.domain.includes(d))
+    );
+    loggedIn = domainCookies.length > 0;
+    if (loggedIn) {
+      console.log(`[LoginCheck] ${platform}: No exact session cookie match, but ${domainCookies.length} domain cookies found → loggedIn: true (domain fallback)`);
+    }
+  }
 
-  return { loggedIn: hasSession };
+  console.log(`[LoginCheck] ${platform}: ${cookies.length} total cookies, ${foundCookies.length} session cookies, names: [${foundCookies.map(c => c.name).join(', ')}] → loggedIn: ${loggedIn}`);
+
+  return { loggedIn };
 }
 
 ipcMain.handle("check-login-status", async (_, { platform }) => {
@@ -616,11 +626,16 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken, isAutoSyn
 
   for (const [platform, handle] of Object.entries(handles)) {
     if (!handle || !handle.trim()) continue;
-    const required = SESSION_COOKIE_MAP[platform];
-    if (!required || required.length === 0) {
+    const config = SESSION_COOKIE_MAP[platform];
+    if (!config) {
       continue;
     }
-    const hasSession = cookies.some(c => required.some(r => c.name === r));
+    // Strategy 1: Exact session cookie name match
+    let hasSession = cookies.some(c => config.cookies.some(r => c.name === r));
+    // Strategy 2: Domain-based fallback
+    if (!hasSession) {
+      hasSession = cookies.some(c => config.domains.some(d => c.domain.includes(d)));
+    }
     if (hasSession) {
       authenticatedPlatforms.add(platform);
       allAuthFailed = false;
