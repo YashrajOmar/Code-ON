@@ -241,6 +241,7 @@ ${assessment.raw}`
     let ragContext = 'No historical coding profile found.';
     try {
       ragContext = await retrieveUserProfileContext(authUser.userId, problemTitle || '', problemTags || []);
+      console.log('[HINT] Problem:', problemTitle, '| URL:', problemUrl, '| RAG len:', ragContext.length, '| Code len:', code?.length || 0, '| Messages:', messages?.length || 0);
     } catch (e) {
       console.error('RAG retrieval failed', e);
     }

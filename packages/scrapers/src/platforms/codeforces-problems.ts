@@ -99,7 +99,7 @@ async function fetchCFProblemStatement(
   if (!html || html.includes('Just a moment') || html.includes('browser is being checked') || html.includes('cf-challenge') || html.includes('Please wait') || !html.includes('problem-statement')) {
     // Try Jina AI reader proxy (bypasses Cloudflare) — request raw HTML so cheerio can parse it
     try {
-      const jinaRes = await fetch(`https://r.jina.ai/${pageUrl}`, {
+      const jinaRes = await fetch(`https://r.jina.ai/${pageUrl}?locale=en`, {
         headers: { 'Accept': 'text/html', 'x-respond-with': 'html' },
         signal: AbortSignal.timeout(15000),
       });
@@ -256,8 +256,12 @@ export class CodeforcesProblemScraper implements IProblemScraper {
 
       // Extract only the section for THIS problem from the full contest editorial.
       // CF tutorials cover all problems (A through F) — we only want the target.
-      if (editorialMarkdown) {
-        editorialMarkdown = extractProblemSection(editorialMarkdown, parsed.contestId, parsed.index);
+      // But only if the editorial is long enough to contain multiple problems.
+      if (editorialMarkdown && editorialMarkdown.length > 500) {
+        const extracted = extractProblemSection(editorialMarkdown, parsed.contestId, parsed.index);
+        if (extracted.length > 100) {
+          editorialMarkdown = extracted;
+        }
       }
 
       // Step 4: Fetch Reference AC Submissions
@@ -281,7 +285,7 @@ export class CodeforcesProblemScraper implements IProblemScraper {
               }
               if (!subHtml || !subHtml.includes('program-source-text')) {
                 try {
-                  const jinaRes = await fetch(`https://r.jina.ai/${subUrl}`, { headers: { 'Accept': 'text/html', 'x-respond-with': 'html' }, signal: AbortSignal.timeout(10000) });
+                  const jinaRes = await fetch(`https://r.jina.ai/${subUrl}?locale=en`, { headers: { 'Accept': 'text/html', 'x-respond-with': 'html' }, signal: AbortSignal.timeout(10000) });
                   if (jinaRes.ok) subHtml = await jinaRes.text();
                 } catch {}
               }
@@ -394,7 +398,7 @@ async function fetchCFEditorialFromUrl(tutorialUrl: string): Promise<string | un
       if (!$typo.length) {
         // Cloudflare blocked — try Jina
         try {
-          const jinaRes = await fetch(`https://r.jina.ai/${tutorialUrl}`, { headers: { 'Accept': 'text/html', 'x-respond-with': 'html' }, signal: AbortSignal.timeout(10000) });
+          const jinaRes = await fetch(`https://r.jina.ai/${tutorialUrl}?locale=en`, { headers: { 'Accept': 'text/html', 'x-respond-with': 'html' }, signal: AbortSignal.timeout(10000) });
           if (jinaRes.ok) {
             const jinaHtml = await jinaRes.text();
             const $jina = cheerio.load(jinaHtml);
@@ -442,7 +446,7 @@ async function fetchCFEditorialFromContest(contestId: string): Promise<string | 
     if (res.ok) html = await res.text();
     if (!html || !html.includes('tutorial')) {
       try {
-        const jinaRes = await fetch(`https://r.jina.ai/${contestUrl}`, { headers: { 'Accept': 'text/html', 'x-respond-with': 'html' }, signal: AbortSignal.timeout(10000) });
+        const jinaRes = await fetch(`https://r.jina.ai/${contestUrl}?locale=en`, { headers: { 'Accept': 'text/html', 'x-respond-with': 'html' }, signal: AbortSignal.timeout(10000) });
         if (jinaRes.ok) html = await jinaRes.text();
       } catch {}
     }

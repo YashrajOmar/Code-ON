@@ -46,25 +46,33 @@ export default function HintPanel({ problemTitle, problemUrl, problemStatement, 
 
   // ── Persist conversation to localStorage (survives refresh/back-button) ──────
   const conversationKey = problemUrl ? `codeon_hints_${problemUrl}` : 'codeon_hints_default';
+  const lastProblemUrlRef = useRef<string | null>(null);
 
-  // Load conversation from localStorage on mount
+  // Load conversation from localStorage on mount OR when problem changes
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(conversationKey);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          setHints(parsed);
+    // If the problem URL changed, clear current hints and load new conversation
+    if (lastProblemUrlRef.current !== problemUrl) {
+      setHints([]);
+      lastProblemUrlRef.current = problemUrl ?? null;
+      try {
+        const saved = localStorage.getItem(conversationKey);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setHints(parsed);
+          }
         }
-      }
-    } catch {}
-  }, [conversationKey]);
+      } catch {}
+    }
+  }, [conversationKey, problemUrl]);
 
   // Save conversation to localStorage whenever hints change
   useEffect(() => {
     try {
       if (hints.length > 0) {
         localStorage.setItem(conversationKey, JSON.stringify(hints));
+      } else {
+        localStorage.removeItem(conversationKey);
       }
     } catch {}
   }, [hints, conversationKey]);
@@ -94,11 +102,13 @@ export default function HintPanel({ problemTitle, problemUrl, problemStatement, 
   }
 
   // Build conversation messages array from hints state
+  // CRITICAL: Only send the last 6 messages to avoid context poisoning
+  // from old hallucinations or different problem conversations
   function buildMessages(): Array<{ role: "user" | "assistant"; content: string }> {
     return hints
       .filter((h) => {
         const type = (h as { type: string }).type;
-        return type === "student" || type !== undefined;
+        return type === "student" || (type !== undefined && type !== "student");
       })
       .map((h) => {
         const type = (h as { type: string }).type;
@@ -106,7 +116,8 @@ export default function HintPanel({ problemTitle, problemUrl, problemStatement, 
           return { role: "user" as const, content: (h as { content: string }).content };
         }
         return { role: "assistant" as const, content: (h as { content: string }).content };
-      });
+      })
+      .slice(-6); // Last 6 messages only — prevents stale context from dominating
   }
 
   async function requestHint() {
@@ -115,12 +126,17 @@ export default function HintPanel({ problemTitle, problemUrl, problemStatement, 
     setPolicyDecision("Evaluating pedagogical policy & invoking Gemini AI…");
 
     try {
+      // CRITICAL: Get FRESH code from Zustand store, not stale render variable
+      const freshState = useIDEStore.getState();
+      const freshCode = freshState.code || "";
+      const freshLang = freshState.language || "C++17";
+
       const res = await fetch("/api/hint", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          code: editorCode || "// No code entered",
-          language: editorLang.toLowerCase().replace(/[^a-z0-9]/g, "") || "cpp17",
+          code: freshCode || "// No code entered",
+          language: freshLang.toLowerCase().replace(/[^a-z0-9]/g, "") || "cpp17",
           problemTitle: problemTitle || "No problem loaded",
           problemUrl: problemUrl,
           problemStatement: problemStatement || "No problem statement",
@@ -188,12 +204,16 @@ export default function HintPanel({ problemTitle, problemUrl, problemStatement, 
     ]);
 
     try {
+      const freshState = useIDEStore.getState();
+      const freshCode = freshState.code || "";
+      const freshLang = freshState.language || "C++17";
+
       const res = await fetch("/api/hint", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          code: editorCode || "// No code entered",
-          language: editorLang.toLowerCase().replace(/[^a-z0-9]/g, "") || "cpp17",
+          code: freshCode || "// No code entered",
+          language: freshLang.toLowerCase().replace(/[^a-z0-9]/g, "") || "cpp17",
           problemTitle: problemTitle || "No problem loaded",
           problemUrl: problemUrl,
           problemStatement: problemStatement || "No problem statement",
