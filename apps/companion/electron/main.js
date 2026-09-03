@@ -77,22 +77,20 @@ let isQuitting = false;
 app.on("before-quit", () => { isQuitting = true; });
 app.isQuitting = false;
 
-// ── Auto-sync cooldown (prevents infinite retry when auth fails) ────────────
-let autoSyncCooldownUntil = 0;
-const AUTO_SYNC_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+// ── Auto-sync cooldown (strict boolean gate) ─────────────────────────────────
+let isCoolingDown = false;
 
 function startAutoSync() {
   if (autoSyncTimer) clearInterval(autoSyncTimer);
   autoSyncTimer = setInterval(() => {
-    if (Date.now() < autoSyncCooldownUntil) {
-      // In cooldown — skip this auto-sync cycle
-      return;
-    }
+    // STRICT GATE: if cooling down, do nothing at all — no Playwright, no IPC
+    if (isCoolingDown) return;
     mainWindow.webContents.send("auto-sync");
   }, SYNC_INTERVAL);
 
   // Also sync 60 seconds after startup if handles are saved
   setTimeout(async () => {
+    if (isCoolingDown) return;
     const settings = loadSettings();
     const hasHandles = settings.handles && Object.values(settings.handles).some(h => h && h.trim());
     if (hasHandles) {
@@ -431,8 +429,11 @@ ipcMain.handle("validate-handle", async (_, { platform, handle }) => {
 // ── Check Login Status (cookie verification) ────────────────────────────────
 ipcMain.handle("check-login-status", async (_, { platform }) => {
   try {
-    const browser = await getBrowser();
-    const context = browser.contexts()[0] || browser;
+    // Use EXISTING browserContext only — never create one just to check cookies
+    if (!browserContext) {
+      return { loggedIn: false };
+    }
+    const context = browserContext.contexts()[0] || browserContext;
     const cookies = await context.cookies();
     
     const platformCookies = {
@@ -549,59 +550,58 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken, isAutoSyn
 
   const authToken = companionToken.trim();
 
-  // ── AUTH GATE: Check cookies BEFORE opening any browser/page ──────────────
-  // This prevents the memory leak: no page is created if auth fails
+  // ── AUTH GATE: Check cookies from EXISTING browserContext only ────────────
+  // Do NOT call getBrowser() or newPage() here. If no browser exists, we
+  // can't check cookies -> assume not logged in -> skip all platforms.
   const platformCookieMap = {
     codeforces: ['CF_ORG_ID', 'X-User-Sn', 'rc'],
     leetcode: ['LEETCODE_SESSION', 'csrftoken'],
     atcoder: ['REVEL_SESSION', 'ARBCID'],
   };
 
-  // Check which platforms are authenticated (without creating any page)
   let allAuthFailed = true;
   const authenticatedPlatforms = new Set();
+  let cookies = [];
 
-  try {
-    const browser = await getBrowser(false); // always headless for cookie check
-    const context = browser.contexts()[0] || browser;
-    const cookies = await context.cookies();
-
-    for (const [platform, handle] of Object.entries(handles)) {
-      if (!handle || !handle.trim()) continue;
-      const required = platformCookieMap[platform] || [];
-      if (required.length === 0) {
-        authenticatedPlatforms.add(platform);
-        allAuthFailed = false;
-        continue;
-      }
-      const hasAuth = cookies.some(c =>
-        required.some(r => c.name.includes(r)) || c.domain.includes(platform)
-      );
-      if (hasAuth) {
-        authenticatedPlatforms.add(platform);
-        allAuthFailed = false;
-      } else {
-        const p = PLATFORMS[platform];
-        mainWindow.webContents.send("status", `[${p?.name || platform}] Skipped sync: Login required.`);
-        results.perPlatform[platform] = { status: "login_required", count: 0 };
-      }
+  // Only check cookies if browserContext already exists — never create one just to check
+  if (browserContext) {
+    try {
+      const context = browserContext.contexts()[0] || browserContext;
+      cookies = await context.cookies();
+    } catch {
+      cookies = [];
     }
-  } catch (e) {
-    mainWindow.webContents.send("status", "Browser error during auth check. Try restarting the app.");
-    results.errors.push("Browser error: " + e.message);
-    results.status = "error";
-    return results;
   }
 
-  // If all platforms failed auth, set cooldown for auto-sync
-  if (allAuthFailed && isAutoSync) {
-    autoSyncCooldownUntil = Date.now() + AUTO_SYNC_COOLDOWN_MS;
-    mainWindow.webContents.send("status", "All platforms need login. Auto-sync paused for 5 minutes.");
-    results.status = "done";
-    return results;
+  for (const [platform, handle] of Object.entries(handles)) {
+    if (!handle || !handle.trim()) continue;
+    const required = platformCookieMap[platform] || [];
+    if (required.length === 0) {
+      authenticatedPlatforms.add(platform);
+      allAuthFailed = false;
+      continue;
+    }
+    const hasAuth = cookies.some(c =>
+      required.some(r => c.name.includes(r)) || c.domain.includes(platform)
+    );
+    if (hasAuth) {
+      authenticatedPlatforms.add(platform);
+      allAuthFailed = false;
+    } else {
+      const p = PLATFORMS[platform];
+      mainWindow.webContents.send("status", `[${p?.name || platform}] Skipped sync: Login required.`);
+      results.perPlatform[platform] = { status: "login_required", count: 0 };
+    }
   }
 
+  // If all platforms failed auth, activate cooldown for auto-sync
   if (allAuthFailed) {
+    if (isAutoSync) {
+      isCoolingDown = true;
+      mainWindow.webContents.send("status", "All platforms need login. Auto-sync paused for 5 minutes.");
+      // Release cooldown after 5 minutes
+      setTimeout(() => { isCoolingDown = false; }, 5 * 60 * 1000);
+    }
     results.status = "done";
     return results;
   }
