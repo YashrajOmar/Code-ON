@@ -6,7 +6,8 @@ import "flexlayout-react/style/dark.css";
 import ProblemPanel from "@/components/ProblemPanel";
 import EditorPanel from "@/components/EditorPanel";
 import HintPanel from "@/components/HintPanel";
-import TrailPanel from "@/components/TrailPanel";
+import TrailTab from "@/components/TrailTab";
+import { useIDEStore } from "@/store/useIDEStore";
 import type { ProblemData } from "@/components/ProblemPanel";
 
 // ─── Default layout model (LeetCode-style) ────────────────────────────────────
@@ -90,7 +91,7 @@ export default function FlexLayoutWrapper({
           );
         case "trail":
           return (
-            <TrailPanel problem={currentProblem} />
+            <TrailTab problemUrl={currentProblem?.url || ''} problemTags={currentProblem?.tags || []} code={useIDEStore.getState().code} />
           );
         case "editorial":
           return (
