@@ -456,33 +456,17 @@ const SESSION_COOKIE_MAP = {
 };
 
 async function checkCookiesForPlatform(platform) {
-  let cookies = [];
+  // Read cookies from existing browserContext ONLY.
+  // Never launch a temp context — it conflicts with the profile lock
+  // if Chrome is already running, and crashes if it's not.
+  if (!browserContext) {
+    return { loggedIn: false };
+  }
 
-  // If browserContext exists, read cookies directly (fast path)
-  if (browserContext) {
-    try {
-      cookies = await browserContext.cookies();
-    } catch {
-      cookies = [];
-    }
-  } else if (existsSync(PROFILE_DIR)) {
-    // CATCH-22 FIX: browserContext is null but cookies exist on disk.
-    // Temporarily launch headless persistent context, read cookies, close.
-    try {
-      const { chromium } = require("playwright");
-      const tempContext = await chromium.launchPersistentContext(PROFILE_DIR, {
-        headless: true,
-        channel: "chrome",
-        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
-      });
-      cookies = await tempContext.cookies();
-      await tempContext.close();
-    } catch (e) {
-      console.log(`[LoginCheck] ${platform}: Failed to read cookies from disk: ${e.message}`);
-      return { loggedIn: false };
-    }
-  } else {
-    // No browser context, no profile directory → not logged in
+  let cookies = [];
+  try {
+    cookies = await browserContext.cookies();
+  } catch {
     return { loggedIn: false };
   }
 
@@ -491,7 +475,6 @@ async function checkCookiesForPlatform(platform) {
     return { loggedIn: false };
   }
 
-  // Check for EXACT cookie name match (session identifiers only)
   const foundCookies = cookies.filter(c => required.some(r => c.name === r));
   const hasSession = foundCookies.length > 0;
 
@@ -620,23 +603,12 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken, isAutoSyn
   const authenticatedPlatforms = new Set();
   let cookies = [];
 
-  // Check cookies — uses existing browserContext, or reads from disk if needed
+  // Read cookies from existing browserContext ONLY.
+  // Do NOT launch a temp headless context here — it conflicts with visible Chrome
+  // if the user clicked Login. If no browser is open, all platforms skip.
   if (browserContext) {
     try {
       cookies = await browserContext.cookies();
-    } catch {
-      cookies = [];
-    }
-  } else if (existsSync(PROFILE_DIR)) {
-    // browserContext is null but profile exists on disk — read cookies temporarily
-    try {
-      const { chromium } = require("playwright");
-      const tempContext = await chromium.launchPersistentContext(PROFILE_DIR, {
-        headless: true, channel: "chrome",
-        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-gpu"],
-      });
-      cookies = await tempContext.cookies();
-      await tempContext.close();
     } catch {
       cookies = [];
     }
@@ -646,7 +618,6 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken, isAutoSyn
     if (!handle || !handle.trim()) continue;
     const required = SESSION_COOKIE_MAP[platform];
     if (!required || required.length === 0) {
-      // Unknown platform — skip, don't mark as authenticated
       continue;
     }
     const hasSession = cookies.some(c => required.some(r => c.name === r));
