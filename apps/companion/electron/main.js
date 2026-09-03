@@ -133,8 +133,11 @@ const PLATFORMS = {
     isAc: (s) => s.verdict === "OK",
     isCpp: (s) => s.programmingLanguage && s.programmingLanguage.includes("C++"),
     getCode: async (page, sub) => {
-      const url = `https://codeforces.com/contest/${sub.problem.contestId}/submission/${sub.id}`;
-      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15000 });
+      const contestId = sub.problem.contestId;
+      const submissionUrl = contestId >= 100000
+        ? `https://codeforces.com/gym/${contestId}/submission/${sub.id}`
+        : `https://codeforces.com/contest/${contestId}/submission/${sub.id}`;
+      await page.goto(submissionUrl, { waitUntil: "domcontentloaded", timeout: 15000 });
       for (let i = 0; i < 10; i++) {
         const title = await page.title();
         if (!title.includes("Just a moment")) break;
@@ -169,7 +172,7 @@ const PLATFORMS = {
       // Step 1: Get RECENT accepted submissions (timestamp descending, not by problem ID)
       sendStatus(`[LeetCode] Fetching recent accepted submissions...`);
 
-      const recentSubs = await page.evaluate(async (limit) => {
+      const recentSubs = await page.evaluate(async (userSlug, limit) => {
         try {
           const res = await fetch("https://leetcode.com/graphql", {
             method: "POST",
@@ -180,13 +183,12 @@ const PLATFORMS = {
                   id title titleSlug timestamp lang { name }
                 }
               }`,
-              variables: { userSlug: arguments[0], limit: limit },
+              variables: { userSlug: userSlug, limit: limit },
             }),
           });
           const data = await res.json();
           return data?.data?.recentAcSubmissions || [];
         } catch (e) {
-          // Fallback: try userProfileStats for total count + recentSubmissions
           try {
             const res2 = await fetch("https://leetcode.com/graphql", {
               method: "POST",
@@ -197,7 +199,7 @@ const PLATFORMS = {
                     id title titleSlug difficulty
                   }
                 }`,
-                variables: { status: "ACCEPTED", limit: limit, skip: 0, sortField: "LAST_SUBMITTED_AT", sortOrder: "DESCENDING", userSlug: arguments[0] },
+                variables: { status: "ACCEPTED", limit: limit, skip: 0, sortField: "LAST_SUBMITTED_AT", sortOrder: "DESCENDING", userSlug: userSlug },
               }),
             });
             const data2 = await res2.json();
@@ -206,7 +208,7 @@ const PLATFORMS = {
             return [];
           }
         }
-      }.bind(null, handle), targetCount);
+      }, handle, targetCount);
 
       if (recentSubs.length === 0) {
         sendStatus(`[LeetCode] No recent submissions found. Try logging in again.`);
@@ -678,7 +680,9 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken }) => {
                 platform,
                 tags: p.tags(sub),
                 url: platform === 'codeforces'
-                  ? `https://codeforces.com/problemset/problem/${sub.problem.contestId}/${sub.problem.index}`
+                  ? (sub.problem.contestId >= 100000
+                    ? `https://codeforces.com/gym/${sub.problem.contestId}/problem/${sub.problem.index}`
+                    : `https://codeforces.com/problemset/problem/${sub.problem.contestId}/${sub.problem.index}`)
                   : undefined,
               });
               totalScraped++;
