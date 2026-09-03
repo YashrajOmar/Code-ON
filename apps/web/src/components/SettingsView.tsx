@@ -41,6 +41,7 @@ export default function SettingsView() {
   const [seedUrl, setSeedUrl] = useState("");
   const [seedSaving, setSeedSaving] = useState(false);
   const [seedMsg, setSeedMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [resetLoading, setResetLoading] = useState(false);
   const [trainedSolutions, setTrainedSolutions] = useState<Array<{ topic: string; title: string; platform: string; tags: string[]; patterns: string[]; language: string; url: string | null; updatedAt: string | null }>>([]);
   const [companionToken, setCompanionToken] = useState<string>("");
   const [tokenLoading, setTokenLoading] = useState(false);
@@ -675,6 +676,42 @@ export default function SettingsView() {
           <p style={{ fontSize: 12, color: "var(--text-muted)", marginBottom: 20 }}>
             Paste 2-3 of your accepted solutions below, or use the CodeOn Companion desktop app to auto-sync from Codeforces/LeetCode.
           </p>
+
+          {trainedSolutions.length > 0 && (
+            <div style={{ marginBottom: 16, display: "flex", justifyContent: "flex-end" }}>
+              <button
+                onClick={async () => {
+                  if (resetLoading) return;
+                  if (!confirm("This will DELETE all your trained solutions. You'll need to re-sync via the companion app. Continue?")) return;
+                  setResetLoading(true);
+                  try {
+                    const res = await fetch("/api/settings/reset-rag", { method: "POST" });
+                    const json = await res.json();
+                    if (json.success) {
+                      setMessage({ type: "success", text: json.message });
+                      setTrainedSolutions([]);
+                    } else {
+                      setMessage({ type: "error", text: json.error || "Failed to reset" });
+                    }
+                  } catch {
+                    setMessage({ type: "error", text: "Network error" });
+                  } finally {
+                    setResetLoading(false);
+                  }
+                }}
+                disabled={resetLoading}
+                style={{
+                  padding: "6px 14px", borderRadius: 6,
+                  background: "rgba(244,63,94,0.1)", border: "1px solid rgba(244,63,94,0.3)",
+                  color: "var(--brand-rose)", fontSize: 11, fontWeight: 600,
+                  cursor: resetLoading ? "not-allowed" : "pointer",
+                  opacity: resetLoading ? 0.6 : 1,
+                }}
+              >
+                {resetLoading ? "Resetting..." : "Reset RAG Data"}
+              </button>
+            </div>
+          )}
 
           {trainedSolutions.length > 0 && (
             <div style={{ marginBottom: 16, background: "var(--surface-2)", borderRadius: 8, border: "1px solid var(--border-subtle)", overflow: "hidden" }}>

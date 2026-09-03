@@ -172,7 +172,8 @@ const PLATFORMS = {
       // Step 1: Get RECENT accepted submissions (timestamp descending, not by problem ID)
       sendStatus(`[LeetCode] Fetching recent accepted submissions...`);
 
-      const recentSubs = await page.evaluate(async (userSlug, limit) => {
+      const recentSubs = await page.evaluate(async (params) => {
+        const { userSlug, limit } = params;
         try {
           const res = await fetch("https://leetcode.com/graphql", {
             method: "POST",
@@ -208,7 +209,7 @@ const PLATFORMS = {
             return [];
           }
         }
-      }, handle, targetCount);
+      }, { userSlug: handle, limit: targetCount });
 
       if (recentSubs.length === 0) {
         sendStatus(`[LeetCode] No recent submissions found. Try logging in again.`);
@@ -479,15 +480,23 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken }) => {
           if (solutions.length > 0) {
             mainWindow.webContents.send("status", `[${p.name}] Uploading ${solutions.length} solutions...`);
             try {
-            const webhookSecret = authToken;
               const res = await fetch(`${codeonUrl}/api/settings/seed-code`, {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
-                  "Authorization": `Bearer ${webhookSecret}`,
+                  "Authorization": `Bearer ${authToken}`,
                 },
                 body: JSON.stringify({ solutions }),
               });
+              if (res.status === 401) {
+                const settings = loadSettings();
+                settings.companionToken = "";
+                saveSettings(settings);
+                mainWindow.webContents.send("status", "ERROR: Companion token is invalid. Generate a new one in web app Settings. Sync aborted.");
+                results.errors.push("Companion token invalid — sync aborted.");
+                results.status = "error";
+                return results;
+              }
               const resText = await res.text();
               let data;
               try { data = JSON.parse(resText); } catch {
@@ -648,6 +657,15 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken }) => {
                   headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
                   body: JSON.stringify({ solutions: batchSolutions }),
                 });
+                if (res.status === 401) {
+                  const settings = loadSettings();
+                  settings.companionToken = "";
+                  saveSettings(settings);
+                  mainWindow.webContents.send("status", "ERROR: Companion token is invalid. Generate a new one in web app Settings. Sync aborted.");
+                  results.errors.push("Companion token invalid — sync aborted.");
+                  results.status = "error";
+                  return results;
+                }
                 const data = await res.json();
                 if (data.success) {
                   results.total += batchSolutions.length;
@@ -716,6 +734,15 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken }) => {
               headers: { "Content-Type": "application/json", "Authorization": `Bearer ${authToken}` },
               body: JSON.stringify({ solutions: batchSolutions }),
             });
+            if (res.status === 401) {
+              const settings = loadSettings();
+              settings.companionToken = "";
+              saveSettings(settings);
+              mainWindow.webContents.send("status", "ERROR: Companion token is invalid. Sync aborted.");
+              results.errors.push("Companion token invalid.");
+              results.status = "error";
+              return results;
+            }
             const data = await res.json();
             if (data.success) {
               results.total += batchSolutions.length;

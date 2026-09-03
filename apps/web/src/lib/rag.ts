@@ -28,7 +28,7 @@ export interface CodingStyleProfile {
 }
 
 const TOP_K = 5;
-const MAX_DISTANCE = 0.35;
+const MAX_DISTANCE = 0.5;
 
 export async function retrieveUserTopicProfile(
   userId: string,
