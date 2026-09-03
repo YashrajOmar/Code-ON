@@ -378,54 +378,64 @@ async function fetchCFEditorialFromUrl(tutorialUrl: string): Promise<string | un
 
     const blogEntryId = match[1];
 
-    // Strategy 1: Codeforces API
-    const edRes = await fetch(`https://codeforces.com/api/blogEntry.view?blogEntryId=${blogEntryId}`);
-    if (edRes.ok) {
-      const edData = (await edRes.json()) as any;
-      if (edData.status === 'OK' && edData.result?.blogEntry?.content) {
-        return htmlToMarkdown(edData.result.blogEntry.content);
+    // Strategy 1: Codeforces API (may work for some blogs)
+    try {
+      const edRes = await fetch(`https://codeforces.com/api/blogEntry.view?blogEntryId=${blogEntryId}`);
+      if (edRes.ok) {
+        const edData = (await edRes.json()) as any;
+        if (edData.status === 'OK' && edData.result?.blogEntry?.content) {
+          return htmlToMarkdown(edData.result.blogEntry.content);
+        }
       }
-    }
+    } catch {}
 
-    // Strategy 2: Fetch the blog page HTML directly and extract content
-    const pageRes = await fetch(`https://codeforces.com/blog/entry/${blogEntryId}`, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-    });
-    if (pageRes.ok) {
-      const pageHtml = await pageRes.text();
+    // Strategy 2: Try direct fetch first
+    let pageHtml = '';
+    try {
+      const pageRes = await fetch(`https://codeforces.com/blog/entry/${blogEntryId}?locale=en`, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      });
+      if (pageRes.ok) {
+        pageHtml = await pageRes.text();
+      }
+    } catch {}
+
+    // Check if direct fetch got real content (not Cloudflare challenge)
+    if (pageHtml && pageHtml.includes('div class="ttypography"')) {
       const $page = cheerio.load(pageHtml);
       const $typo = $page('div.ttypography').first();
-      if (!$typo.length) {
-        // Cloudflare blocked — try Jina
-        try {
-          const jinaRes = await fetch(`https://r.jina.ai/${tutorialUrl}?locale=en`, { headers: { 'Accept': 'text/html', 'x-respond-with': 'html' }, signal: AbortSignal.timeout(10000) });
-          if (jinaRes.ok) {
-            const jinaHtml = await jinaRes.text();
-            const $jina = cheerio.load(jinaHtml);
-            const $jtypo = $jina('div.ttypography').first();
-            if ($jtypo.length) {
-              $jtypo.find('pre, code').each((_, el) => { const $el = $jina(el); $el.html(($el.html() || '').replace(/</g, '<').replace(/>/g, '>')); });
-              const content = $jtypo.html() || '';
-              if (content.trim().length > 100) return htmlToMarkdown(content);
-            }
-          }
-        } catch {}
-        return undefined;
-      }
-
-      // Escape < and > inside <pre> and <code> tags so they aren't stripped
-      // as HTML tags (e.g. #include <bits/stdc++.h> → #include <bits/stdc++.h>)
-      $typo.find('pre, code').each((_, el) => {
-        const $el = $page(el);
-        const html = $el.html() || '';
-        $el.html(html.replace(/</g, '<').replace(/>/g, '>'));
-      });
-
-      const content = $typo.html() || '';
-      if (content.trim().length > 100) {
-        return htmlToMarkdown(content);
+      if ($typo.length) {
+        $typo.find('pre, code').each((_, el) => {
+          const $el = $page(el);
+          $el.html(($el.html() || '').replace(/</g, '<').replace(/>/g, '>'));
+        });
+        const content = $typo.html() || '';
+        if (content.trim().length > 100) return htmlToMarkdown(content);
       }
     }
+
+    // Strategy 3: Jina proxy fallback (always try if direct fetch failed)
+    try {
+      const jinaRes = await fetch(`https://r.jina.ai/https://codeforces.com/blog/entry/${blogEntryId}?locale=en`, {
+        headers: { 'Accept': 'text/html', 'x-respond-with': 'html' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (jinaRes.ok) {
+        const jinaHtml = await jinaRes.text();
+        if (jinaHtml && jinaHtml.includes('ttypography')) {
+          const $jina = cheerio.load(jinaHtml);
+          const $jtypo = $jina('div.ttypography').first();
+          if ($jtypo.length) {
+            $jtypo.find('pre, code').each((_, el) => {
+              const $el = $jina(el);
+              $el.html(($el.html() || '').replace(/</g, '<').replace(/>/g, '>'));
+            });
+            const content = $jtypo.html() || '';
+            if (content.trim().length > 100) return htmlToMarkdown(content);
+          }
+        }
+      }
+    } catch {}
   } catch (e) {
     console.warn('Failed to fetch CF editorial', e);
   }
@@ -460,8 +470,8 @@ async function fetchCFEditorialFromContest(contestId: string): Promise<string | 
       const href = $(el).attr('href');
       if (!href) return;
 
-      // Prioritize "Tutorial" > "Editorial" > "Announcement"
-      if (text.includes('tutorial') || text.includes('editorial')) {
+      // Prioritize "Tutorial" > "Editorial" > "Announcement" > "Разбор" (Russian for editorial)
+      if (text.includes('tutorial') || text.includes('editorial') || text.includes('разбор')) {
         const fullUrl = href.startsWith('http') ? href : `https://codeforces.com${href}`;
         // Extract the blog entry ID
         if (fullUrl.includes('/blog/entry/')) {
