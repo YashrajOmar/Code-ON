@@ -3,6 +3,7 @@ import { ScraperRegistry, ProblemScraperService, mapToPublicScrapedProblemDTO } 
 import { prisma } from '@/lib/prisma';
 import { decryptKey } from '@/lib/crypto';
 import { getAuthUser } from '@/lib/auth';
+import { getActiveProvider } from '@/lib/ai-providers';
 
 export async function POST(req: NextRequest) {
   try {
@@ -64,6 +65,86 @@ export async function POST(req: NextRequest) {
           }
 
           const problem = scrapeResult.problem;
+
+          // ── AI Structuring: Use the user's AI provider to clean up editorial ──
+          if (problem.content?.editorialMarkdown && problem.content.editorialMarkdown.length > 20) {
+            try {
+              const provider = await getActiveProvider();
+              if (provider) {
+                sendEvent('progress', { message: 'Structuring editorial with AI...' });
+                
+                const editorialPrompt = `You are given a raw editorial for a competitive programming problem. Clean it up into well-structured markdown with clear sections. Remove any navigation links, author info, or page headers. Keep only the actual editorial content.
+
+Problem: ${problem.title}
+Raw editorial:
+${problem.content.editorialMarkdown.substring(0, 3000)}
+
+Output ONLY the cleaned editorial in markdown. Structure it as:
+## Approach
+(explain the approach)
+
+## Complexity
+(time and space complexity)
+
+If there's code in the editorial, format it in proper code blocks.`;
+
+                const { GoogleGenAI } = await import('@google/genai');
+                if (provider.format === 'gemini') {
+                  const ai = new GoogleGenAI({ apiKey: provider.apiKey });
+                  const response = await ai.models.generateContent({
+                    model: provider.model,
+                    contents: editorialPrompt,
+                  });
+                  const structured = response.text;
+                  if (structured && structured.trim().length > 50) {
+                    problem.content.editorialMarkdown = structured.trim();
+                  }
+                } else if (provider.format === 'openai') {
+                  const baseUrl = provider.baseUrl || 'https://api.openai.com/v1';
+                  const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${provider.apiKey}` },
+                    body: JSON.stringify({
+                      model: provider.model,
+                      messages: [{ role: 'user', content: editorialPrompt }],
+                      temperature: 0.3,
+                      max_tokens: 2000,
+                    }),
+                    signal: AbortSignal.timeout(30000),
+                  });
+                  if (res.ok) {
+                    const data = await res.json();
+                    const structured = data.choices?.[0]?.message?.content;
+                    if (structured && structured.trim().length > 50) {
+                      problem.content.editorialMarkdown = structured.trim();
+                    }
+                  }
+                } else if (provider.format === 'anthropic') {
+                  const baseUrl = provider.baseUrl || 'https://api.anthropic.com';
+                  const res = await fetch(`${baseUrl.replace(/\/$/, '')}/v1/messages`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-api-key': provider.apiKey, 'anthropic-version': '2023-06-01' },
+                    body: JSON.stringify({
+                      model: provider.model,
+                      messages: [{ role: 'user', content: editorialPrompt }],
+                      temperature: 0.3,
+                      max_tokens: 2000,
+                    }),
+                    signal: AbortSignal.timeout(30000),
+                  });
+                  if (res.ok) {
+                    const data = await res.json();
+                    const structured = data.content?.[0]?.text;
+                    if (structured && structured.trim().length > 50) {
+                      problem.content.editorialMarkdown = structured.trim();
+                    }
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn('[Scrape Route] AI structuring failed, using raw editorial:', e);
+            }
+          }
 
           if (!scrapeResult.fromCache && scrapeResult.fencingToken !== undefined) {
             try {
