@@ -433,23 +433,26 @@ ipcMain.handle("check-login-status", async (_, { platform }) => {
     if (!browserContext) {
       return { loggedIn: false };
     }
-    const context = browserContext.contexts()[0] || browserContext;
-    const cookies = await context.cookies();
-    
-    const platformCookies = {
-      codeforces: ['CF_ORG_ID', 'X-User-Sn', 'rc'],
+    // browserContext IS a BrowserContext (from launchPersistentContext).
+    // Do NOT call browserContext.contexts() — that method doesn't exist on BrowserContext.
+    // Call browserContext.cookies() directly.
+    const cookies = await browserContext.cookies();
+
+    // Explicit session cookie targeting — check for exact names, not domain includes
+    const sessionCookieMap = {
+      codeforces: ['X-User-Sn', 'rc', 'CF_ORG_ID'],
       leetcode: ['LEETCODE_SESSION', 'csrftoken'],
       atcoder: ['REVEL_SESSION', 'ARBCID'],
     };
-    
-    const required = platformCookies[platform] || [];
+
+    const required = sessionCookieMap[platform] || [];
     if (required.length === 0) return { loggedIn: true };
-    
-    const found = cookies.filter(c => required.some(r => c.name.includes(r)) || c.domain.includes(platform));
-    const isLoggedIn = found.length > 0;
+
+    // Check for exact cookie name matches (session identifiers only)
+    const hasSession = cookies.some(c => required.some(r => c.name === r));
 
     // If logged in, purge the failed queue for this platform
-    if (isLoggedIn) {
+    if (hasSession) {
       const state = loadState();
       const failedQueueKey = `${platform}FailedQueue`;
       if (state[failedQueueKey] && state[failedQueueKey].length > 0) {
@@ -457,8 +460,8 @@ ipcMain.handle("check-login-status", async (_, { platform }) => {
         saveState(state);
       }
     }
-    
-    return { loggedIn: isLoggedIn };
+
+    return { loggedIn: hasSession };
   } catch {
     return { loggedIn: false };
   }
@@ -566,25 +569,30 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken, isAutoSyn
   // Only check cookies if browserContext already exists — never create one just to check
   if (browserContext) {
     try {
-      const context = browserContext.contexts()[0] || browserContext;
-      cookies = await context.cookies();
+      // browserContext IS a BrowserContext — call .cookies() directly, NOT .contexts()[0]
+      cookies = await browserContext.cookies();
     } catch {
       cookies = [];
     }
   }
 
+  const sessionCookieMap = {
+    codeforces: ['X-User-Sn', 'rc', 'CF_ORG_ID'],
+    leetcode: ['LEETCODE_SESSION', 'csrftoken'],
+    atcoder: ['REVEL_SESSION', 'ARBCID'],
+  };
+
   for (const [platform, handle] of Object.entries(handles)) {
     if (!handle || !handle.trim()) continue;
-    const required = platformCookieMap[platform] || [];
+    const required = sessionCookieMap[platform] || [];
     if (required.length === 0) {
       authenticatedPlatforms.add(platform);
       allAuthFailed = false;
       continue;
     }
-    const hasAuth = cookies.some(c =>
-      required.some(r => c.name.includes(r)) || c.domain.includes(platform)
-    );
-    if (hasAuth) {
+    // Check for exact session cookie name matches only
+    const hasSession = cookies.some(c => required.some(r => c.name === r));
+    if (hasSession) {
       authenticatedPlatforms.add(platform);
       allAuthFailed = false;
     } else {

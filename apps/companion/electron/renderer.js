@@ -198,10 +198,16 @@ document.querySelectorAll(".login-btn").forEach(btn => {
 
     // If button says "Check Login", verify cookies instead of opening new tab
     if (btn.textContent === "Check Login") {
-      btn.disabled = true;
-      btn.textContent = "Checking...";
-      await checkLoginStatus(platform, btn, platformName);
-      btn.disabled = false;
+      try {
+        btn.disabled = true;
+        btn.textContent = "Checking...";
+        await checkLoginStatus(platform, btn, platformName);
+      } catch {
+        addStatus(`[${platformName}] Failed to check login status.`, "error");
+        btn.textContent = "Check Login";
+      } finally {
+        btn.disabled = false;
+      }
       return;
     }
 
@@ -213,25 +219,31 @@ document.querySelectorAll(".login-btn").forEach(btn => {
     // CRITICAL: Save settings immediately so the new handle overwrites old one
     saveSettings();
 
-    btn.textContent = "Opening...";
-    btn.disabled = true;
+    try {
+      btn.textContent = "Opening...";
+      btn.disabled = true;
 
-    const isValid = await window.codeon.validateHandle({ platform, handle });
-    if (!isValid) {
-      addStatus(`[${platformName}] Invalid handle "${handle}". Check your username on ${platformName}.`, "error");
+      const isValid = await window.codeon.validateHandle({ platform, handle });
+      if (!isValid) {
+        addStatus(`[${platformName}] Invalid handle "${handle}". Check your username on ${platformName}.`, "error");
+        btn.textContent = "Login";
+        return;
+      }
+
+      const result = await window.codeon.login({ platform });
+      if (result.success) {
+        btn.textContent = "Check Login";
+        addStatus(`[${platformName}] Chrome tab opened. Log in, close the tab, then click "Check Login".`, "info");
+      } else {
+        addStatus(`[${platformName}] Login failed: ${result.error}`, "error");
+        btn.textContent = "Login";
+      }
+    } catch (e) {
+      addStatus(`[${platformName}] Error: ${e.message || "Unknown error"}`, "error");
       btn.textContent = "Login";
+    } finally {
+      // ALWAYS re-enable the button, no matter what
       btn.disabled = false;
-      return;
-    }
-
-    const result = await window.codeon.login({ platform });
-    btn.disabled = false;
-    if (result.success) {
-      btn.textContent = "Check Login";
-      addStatus(`[${platformName}] Chrome tab opened. Log in, close the tab, then click "Check Login".`, "info");
-    } else {
-      addStatus(`[${platformName}] Login failed: ${result.error}`, "error");
-      btn.textContent = "Login";
     }
   });
 });
