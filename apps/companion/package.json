@@ -1,14 +1,23 @@
-﻿{
+{
   "name": "@codeon/companion",
   "version": "0.1.0",
-  "description": "CodeOn Companion — auto-syncs your CF/LC submissions to train your AI mentor",
-  "type": "module",
+  "description": "CodeOn Companion",
+  "main": "electron/main.js",
+  "author": "CodeOn",
+  "private": true,
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node src/index.js --dev",
-    "build": "npx pkg src/index.js --output codeon-companion"
+    "start": "node_modules/.bin/electron electron/main.js",
+    "dev": "node_modules/.bin/electron electron/main.js --dev",
+    "build": "node_modules/.bin/electron-builder --win",
+    "cli": "node src/index.js"
   },
-  "dependencies": {
-    "playwright": "^1.62.0"
+  "build": {
+    "appId": "com.codeon.companion",
+    "productName": "CodeOn Companion",
+    "directories": { "output": "dist" },
+    "files": ["electron/**/*", "package.json"],
+    "win": { "target": "nsis", "icon": "electron/icon.png" },
+    "mac": { "target": "dmg", "icon": "electron/icon.png" },
+    "linux": { "target": "AppImage", "icon": "electron/icon.png" }
   }
 }
