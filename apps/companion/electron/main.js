@@ -419,6 +419,50 @@ ipcMain.handle("validate-handle", async (_, { platform, handle }) => {
   }
 });
 
+// ── Check Login Status (cookie verification) ────────────────────────────────
+ipcMain.handle("check-login-status", async (_, { platform }) => {
+  try {
+    const browser = await getBrowser();
+    const context = browser.contexts()[0] || browser;
+    const cookies = await context.cookies();
+    
+    const platformCookies = {
+      codeforces: ['CF_ORG_ID', 'X-User-Sn', 'rc'],
+      leetcode: ['LEETCODE_SESSION', 'csrftoken'],
+      atcoder: ['REVEL_SESSION', 'ARBCID'],
+    };
+    
+    const required = platformCookies[platform] || [];
+    if (required.length === 0) return { loggedIn: true };
+    
+    const found = cookies.filter(c => required.some(r => c.name.includes(r)) || c.domain.includes(platform));
+    return { loggedIn: found.length > 0 };
+  } catch {
+    return { loggedIn: false };
+  }
+});
+
+// ── Clear All Local Data ────────────────────────────────────────────────────
+ipcMain.handle("clear-local-data", async () => {
+  try {
+    if (browserContext) {
+      try { await browserContext.close(); } catch {}
+      browserContext = null;
+    }
+    
+    const fs = require("fs");
+    const codeonDir = path.join(homedir(), ".codeon");
+    
+    try { if (existsSync(SETTINGS_FILE)) fs.unlinkSync(SETTINGS_FILE); } catch {}
+    try { if (existsSync(STATE_FILE)) fs.unlinkSync(STATE_FILE); } catch {}
+    try { if (existsSync(PROFILE_DIR)) fs.rmSync(PROFILE_DIR, { recursive: true, force: true }); } catch {}
+    
+    return { success: true };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 ipcMain.handle("login", async (_, { platform }) => {
   try {
     const p = PLATFORMS[platform];

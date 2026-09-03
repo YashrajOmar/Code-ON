@@ -153,11 +153,42 @@ async function checkConnection() {
     });
   }
   await checkConnection();
+
+  // Check actual login status via cookies (don't blindly show "Logged In")
+  document.querySelectorAll(".login-btn").forEach(async (btn) => {
+    const platform = btn.dataset.login;
+    try {
+      const status = await window.codeon.checkLoginStatus({ platform });
+      if (status.loggedIn) {
+        btn.classList.add("logged-in");
+        btn.textContent = "Logged In";
+      } else {
+        btn.classList.remove("logged-in");
+        btn.textContent = "Login Required";
+      }
+    } catch {
+      btn.textContent = "Login";
+    }
+  });
 })();
 
 window.codeon.onStatus((msg) => addStatus(msg, "info"));
 
-// Login buttons — opens new tab in existing Chrome, doesn't close it
+// Check login status button (second click after opening login page)
+async function checkLoginStatus(platform, btn, platformName) {
+  const status = await window.codeon.checkLoginStatus({ platform });
+  if (status.loggedIn) {
+    btn.classList.add("logged-in");
+    btn.textContent = "Logged In";
+    addStatus(`[${platformName}] Login verified ✓`, "success");
+  } else {
+    btn.classList.remove("logged-in");
+    btn.textContent = "Login";
+    addStatus(`[${platformName}] Not logged in yet. Open the login page and sign in first.`, "error");
+  }
+}
+
+// Login button behavior: first click opens login, second click checks status
 document.querySelectorAll(".login-btn").forEach(btn => {
   btn.addEventListener("click", async () => {
     const platform = btn.dataset.login;
@@ -165,15 +196,26 @@ document.querySelectorAll(".login-btn").forEach(btn => {
     const handleInput = document.querySelector(`input[data-platform="${platform}"]`);
     const handle = handleInput ? handleInput.value.trim() : "";
 
+    // If button says "Check Login", verify cookies instead of opening new tab
+    if (btn.textContent === "Check Login") {
+      btn.disabled = true;
+      btn.textContent = "Checking...";
+      await checkLoginStatus(platform, btn, platformName);
+      btn.disabled = false;
+      return;
+    }
+
     if (!handle) {
       addStatus(`[${platformName}] Enter your handle first.`, "error");
       return;
     }
 
+    // CRITICAL: Save settings immediately so the new handle overwrites old one
+    saveSettings();
+
     btn.textContent = "Opening...";
     btn.disabled = true;
 
-    // Validate handle before marking as logged in
     const isValid = await window.codeon.validateHandle({ platform, handle });
     if (!isValid) {
       addStatus(`[${platformName}] Invalid handle "${handle}". Check your username on ${platformName}.`, "error");
@@ -183,17 +225,35 @@ document.querySelectorAll(".login-btn").forEach(btn => {
     }
 
     const result = await window.codeon.login({ platform });
-    btn.textContent = "Login";
     btn.disabled = false;
     if (result.success) {
-      btn.classList.add("logged-in");
-      btn.textContent = "Logged In";
-      // Don't add status here — onStatus listener already handles it
+      btn.textContent = "Check Login";
+      addStatus(`[${platformName}] Chrome tab opened. Log in, close the tab, then click "Check Login".`, "info");
     } else {
       addStatus(`[${platformName}] Login failed: ${result.error}`, "error");
+      btn.textContent = "Login";
     }
   });
 });
+
+// ── Clear All Local Data ──────────────────────────────────────────────────
+const clearDataBtn = document.getElementById("clearDataBtn");
+if (clearDataBtn) {
+  clearDataBtn.addEventListener("click", async () => {
+    if (!confirm("This will DELETE all local data (handles, tokens, sync state, browser profile). The app will restart. Continue?")) return;
+    clearDataBtn.textContent = "Clearing...";
+    clearDataBtn.disabled = true;
+    const result = await window.codeon.clearLocalData();
+    if (result.success) {
+      addStatus("All local data cleared. Restarting...", "success");
+      setTimeout(() => { window.location.reload(); }, 2000);
+    } else {
+      addStatus("Failed to clear data: " + (result.error || "Unknown"), "error");
+      clearDataBtn.textContent = "Clear All Local Data";
+      clearDataBtn.disabled = false;
+    }
+  });
+}
 
 async function doSync() {
   if (syncing) return;
