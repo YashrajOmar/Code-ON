@@ -67,58 +67,61 @@ interface ProblemPanelProps {
   problemData?: ProblemData | null;
 }
 
-// Bookmarklet code — stored as a string to avoid JSX parsing issues with </ in selectors
+// Bookmarklet code — sends only .problem-statement div (not full page)
 const BOOKMARKLET_CODE = [
-  "javascript:(async function(){",
-  "const html=document.documentElement.outerHTML;",
+  "javascript:(async function(){try{",
   "const url=location.href;",
+  "",
+  "// Extract ONLY the problem-statement div (not the full page)",
+  "const ps=document.querySelector('.problem-statement');",
+  "const html=ps?ps.outerHTML:'';",
+  "if(!html){alert('No .problem-statement found on this page. Make sure you are on a Codeforces problem page.');return;}",
   "",
   "// Find editorial link and fetch it",
   "let edHtml=null;",
-  "const t=document.querySelector('a[href*=\"/blog/entry/\"]');",
-  "if(t){try{const r=await fetch(t.href);edHtml=await r.text();}catch(e){}}",
+  "const allLinks=document.querySelectorAll('a[href*=\"/blog/entry/\"]');",
+  "for(const link of allLinks){",
+  "  const text=link.textContent.toLowerCase();",
+  "  if(text.includes('tutorial')||text.includes('editorial')){",
+  "    try{const r=await fetch(link.href);edHtml=await r.text();}catch(e){}",
+  "    break;",
+  "  }",
+  "}",
   "",
   "// Find contest ID and problem index from URL",
-  "const m=url.match(/problemset\\/problem\\/(\\d+)\\/([A-Z])/)||url.match(/contest\\/(\\d+)\\/problem\\/([A-Z])/);",
+  "const m=url.match(/problemset\\/problem\\/(\\d+)\\/([a-zA-Z0-9]+)/)||url.match(/contest\\/(\\d+)\\/problem\\/([a-zA-Z0-9]+)/);",
   "let refSolutions=[];",
   "if(m){",
   "  const contestId=m[1];const index=m[2];",
-  "  // Fetch contest status page for accepted submissions",
   "  try{",
-  "    const statusUrl='https://codeforces.com/contest/'+contestId+'/status/'+index;",
-  "    const statusRes=await fetch(statusUrl);",
-  "    const statusHtml=await statusRes.text();",
-  "    const div=document.createElement('div');div.innerHTML=statusHtml;",
-  "    // Find submission links",
-  "    const links=div.querySelectorAll('a[href*=\"/submission/\"]');",
-  "    let count=0;",
-  "    for(const link of links){",
-  "      if(count>=2)break;",
-  "      const href=link.getAttribute('href');",
-  "      if(!href)continue;",
-  "      const subUrl=href.startsWith('http')?href:'https://codeforces.com'+href;",
-  "      try{",
-  "        const subRes=await fetch(subUrl);",
-  "        const subHtml=await subRes.text();",
-  "        const subDiv=document.createElement('div');subDiv.innerHTML=subHtml;",
-  "        const codeEl=subDiv.querySelector('#program-source-text');",
-  "        if(codeEl&&codeEl.textContent.trim().length>20){",
-  "          refSolutions.push({code:codeEl.textContent.trim(),language:'cpp',url:subUrl});",
-  "          count++;",
-  "        }",
-  "      }catch(e){}",
+  "    const apiRes=await fetch('https://codeforces.com/api/contest.status?contestId='+contestId+'&from=1&count=1000');",
+  "    const apiData=await apiRes.json();",
+  "    if(apiData.status==='OK'){",
+  "      const accepted=apiData.result.filter(s=>s.verdict==='OK'&&s.problem.index===index);",
+  "      for(let i=0;i<Math.min(2,accepted.length);i++){",
+  "        const sub=accepted[i];",
+  "        const subUrl='https://codeforces.com/contest/'+contestId+'/submission/'+sub.id;",
+  "        try{",
+  "          const subRes=await fetch(subUrl);",
+  "          const subHtml=await subRes.text();",
+  "          const div=document.createElement('div');div.innerHTML=subHtml;",
+  "          const codeEl=div.querySelector('#program-source-text');",
+  "          if(codeEl){refSolutions.push({code:codeEl.textContent.trim(),language:sub.programmingLanguage,url:subUrl});}",
+  "          await new Promise(res=>setTimeout(res,1500));",
+  "        }catch(e){}",
+  "      }",
   "    }",
   "  }catch(e){}",
   "}",
   "",
-  "// Send everything to CodeOn",
+  "// Send to CodeOn",
   "const r=await fetch('https://codeon-coding-coach-eight.vercel.app/api/problem/bookmarklet',",
   "{method:'POST',headers:{'Content-Type':'application/json'},",
   "body:JSON.stringify({url,html,editorialHtml:edHtml,referenceSolutions:refSolutions})});",
   "const d=await r.json();",
-  "if(d.success){alert('Problem sent to CodeOn: '+d.problem.title+'\\n\\nGo to codeon-coding-coach-eight.vercel.app and paste the URL to load it.');}",
+  "if(d.success){alert('Success! Problem sent to CodeOn.\\n\\nGo to CodeOn and paste the URL to load it.');}",
   "else{alert('Failed: '+d.error);}",
-  "})()"
+  "}catch(err){alert('Error: '+err.message);}})()"
 ].join("\n");
 
 export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadDone, activeTab: externalTab, problemData: externalProblem }: ProblemPanelProps) {
@@ -214,13 +217,13 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
 
   async function scrapeUrl(url: string) {
     if (!url.trim() || isScraping) return;
+    // Immediately clear previous state to prevent showing old problem
+    setInternalProblem(null);
     setIsScraping(true);
     setScrapeError(null);
     setScrapeProgress("Initializing scraper...");
-    // Clear old problem so user doesn't see stale data
-    if (problem) {
-      setInternalProblem(null);
-    }
+    setShowManualPaste(false);
+    setBlockedUrl(null);
 
     try {
       const res = await fetch("/api/problem/scrape", {

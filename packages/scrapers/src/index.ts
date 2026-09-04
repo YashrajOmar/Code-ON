@@ -31,6 +31,7 @@ export {
   parseCFEditorialHtml,
   extractCFProblemId,
   extractProblemSection,
+  extractSpecificEditorialHtml,
 } from './platforms/codeforces-problems';
 export type { CFProblemParseResult } from './platforms/codeforces-problems';
 export { GenericProblemScraper } from './platforms/generic-problems';

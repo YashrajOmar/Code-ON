@@ -199,6 +199,70 @@ export function parseCFEditorialHtml(html: string): string | null {
   return null;
 }
 
+/**
+ * Extract editorial for a SPECIFIC problem from a Codeforces tutorial blog post.
+ * Uses .html() (not .text()) to preserve LaTeX math wrappers.
+ * Scans headers for the problem index (e.g. "116E", "Problem E", "E - Tram").
+ */
+export function extractSpecificEditorialHtml(html: string, contestId: string, index: string): string | null {
+  if (!html) return null;
+  const problemLetter = index.toUpperCase();
+  const problemId = `${contestId}${index}`;
+  const problemIdUpper = problemId.toUpperCase();
+
+  const $ = cheerio.load(html);
+  const $typo = $('div.ttypography').first();
+  if (!$typo.length) return null;
+
+  let targetHtml = '';
+  let foundProblem = false;
+  let inProblem = false;
+
+  // Iterate through children of the editorial content div
+  $typo.children().each((_, el) => {
+    const $el = $(el);
+    const text = $el.text().trim();
+    const isHeader = $el.is('h1, h2, h3, h4, p') && (
+      text.toUpperCase().includes(problemIdUpper) ||
+      text.toUpperCase() === problemLetter ||
+      text.toUpperCase().includes(`PROBLEM ${problemLetter}`) ||
+      text.toUpperCase().includes(`${problemLetter} -`) ||
+      text.toUpperCase().match(new RegExp(`\\b${problemIdUpper}\\b`))
+    );
+
+    if (isHeader && !foundProblem) {
+      // Found the start of our problem's editorial
+      foundProblem = true;
+      inProblem = true;
+      targetHtml += $el.prop('outerHTML') || '';
+      return;
+    }
+
+    if (foundProblem && $el.is('h1, h2, h3, h4')) {
+      // Hit a new header — could be the next problem or a section within the same problem
+      const isNextProblem = $el.text().trim().match(/^[A-Z]\b/i) || $el.text().trim().match(/\d+[A-Z]/i);
+      if (isNextProblem) {
+        // This is the next problem's header — stop collecting
+        inProblem = false;
+        return false; // break
+      }
+    }
+
+    if (inProblem) {
+      // Collect HTML while within the target problem section
+      // Use .html() / outerHTML to preserve LaTeX wrappers like <span class="MathJax">
+      targetHtml += $el.prop('outerHTML') || '';
+    }
+  });
+
+  if (targetHtml.trim().length > 50) {
+    // Convert collected HTML to markdown (preserves code blocks)
+    return htmlToMarkdown(targetHtml);
+  }
+
+  return null;
+}
+
 // ── Fetch + parse (server-side, with CF bypass attempts) ──────────────────────
 
 async function fetchCFProblemStatement(

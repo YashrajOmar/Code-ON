@@ -3,6 +3,7 @@ import {
   parseCFProblemHtml,
   parseCFEditorialHtml,
   extractCFProblemId,
+  extractSpecificEditorialHtml,
   postProcessScrapedProblem,
   mapToPublicScrapedProblemDTO,
   ScrapedProblemSchema,
@@ -108,21 +109,25 @@ export async function POST(req: NextRequest) {
     // Use raw HTML for the problem statement — frontend renders it with rehypeRaw + remarkMath
     const statementContent = pageData.rawStatementHtml || pageData.statement;
 
-    // 3. Parse editorial + AI extract correct problem section
+    // 3. Extract editorial — cheerio fallback FIRST (fast, preserves LaTeX)
     let editorialMarkdown: string | undefined;
     if (editorialHtml) {
-      editorialMarkdown = parseCFEditorialHtml(editorialHtml);
+      // Use extractSpecificEditorialHtml — finds the correct problem's section
+      // using .html() (not .text()) to preserve LaTeX math wrappers
+      editorialMarkdown = extractSpecificEditorialHtml(editorialHtml, contestId, index);
     }
 
-    // 4. AI extract ONLY this problem's editorial
-    if (editorialMarkdown && editorialMarkdown.length > 20) {
+    // 4. AI extract editorial ONLY if cheerio fallback failed or returned too little
+    if (editorialHtml && (!editorialMarkdown || editorialMarkdown.length < 50)) {
       const provider = await getActiveProvider();
       if (provider) {
-        const refCode = referenceSolutions && referenceSolutions.length > 0
-          ? referenceSolutions[0].code.substring(0, 1500)
-          : '';
+        const rawEditorial = parseCFEditorialHtml(editorialHtml);
+        if (rawEditorial && rawEditorial.length > 20) {
+          const refCode = referenceSolutions && referenceSolutions.length > 0
+            ? referenceSolutions[0].code.substring(0, 1500)
+            : '';
 
-        const editorialPrompt = `You are given a Codeforces editorial blog post for contest ${contestId}. It contains editorials for MULTIPLE problems.
+          const editorialPrompt = `You are given a Codeforces editorial blog post for contest ${contestId}. It contains editorials for MULTIPLE problems.
 
 CRITICAL: Extract ONLY the editorial for Problem ${problemLetter} (${cfProblem.name || 'unknown'}).
 
@@ -140,12 +145,13 @@ Format as clean markdown:
 ${refCode ? '```cpp\n' + refCode + '\n```' : '(no reference code available)'}
 
 Plain text editorial:
-${editorialMarkdown.substring(0, 6000)}
+${rawEditorial.substring(0, 6000)}
 
 Output ONLY the editorial for Problem ${problemLetter}.`;
 
-        const aiEditorial = await aiCall(provider, editorialPrompt);
-        if (aiEditorial) editorialMarkdown = aiEditorial;
+          const aiEditorial = await aiCall(provider, editorialPrompt);
+          if (aiEditorial) editorialMarkdown = aiEditorial;
+        }
       }
     }
 
