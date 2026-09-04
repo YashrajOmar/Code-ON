@@ -415,82 +415,91 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
           </div>
         )}
         {showManualPaste && (
-          <div style={{ marginTop: 10, padding: 12, background: "var(--surface-3)", borderRadius: 8, border: "1px solid var(--border-default)" }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)", marginBottom: 8 }}>
-              Codeforces is blocking automated access. Use the bookmarklet:
+          <div style={{ marginTop: 10, padding: 14, background: "var(--surface-3)", borderRadius: 8, border: "1px solid var(--border-default)" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 10 }}>
+              Codeforces is blocking automated access. Here are two ways to import the problem:
             </div>
 
-            {/* Bookmarklet */}
-            <div style={{ marginBottom: 10, padding: 8, background: "var(--surface-2)", borderRadius: 6, border: "1px dashed var(--border-violet)" }}>
-              <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                Step 1: Drag this to your bookmarks bar
+            {/* Option 1: Copy Page Source (Simple) */}
+            <div style={{ marginBottom: 16, padding: 10, background: "var(--surface-2)", borderRadius: 8, border: "1px solid var(--brand-cyan)" }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "var(--brand-cyan)", marginBottom: 8 }}>
+                Option 1: Copy Page Source (Easiest)
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.7, marginBottom: 8 }}>
+                <strong style={{ color: "var(--text-secondary)" }}>Step 1:</strong> Click the button below to open the problem page in your browser<br/>
+                <strong style={{ color: "var(--text-secondary)" }}>Step 2:</strong> On the problem page, press <kbd style={{ background: "var(--surface-1)", padding: "1px 4px", borderRadius: 3, border: "1px solid var(--border-default)" }}>Ctrl+U</kbd> to view the page source<br/>
+                <strong style={{ color: "var(--text-secondary)" }}>Step 3:</strong> Press <kbd style={{ background: "var(--surface-1)", padding: "1px 4px", borderRadius: 3, border: "1px solid var(--border-default)" }}>Ctrl+A</kbd> then <kbd style={{ background: "var(--surface-1)", padding: "1px 4px", borderRadius: 3, border: "1px solid var(--border-default)" }}>Ctrl+C</kbd> to copy everything<br/>
+                <strong style={{ color: "var(--text-secondary)" }}>Step 4:</strong> Come back here and paste it in the box below<br/>
+                <strong style={{ color: "var(--text-secondary)" }}>Step 5:</strong> Click "Parse" — the problem + examples + time limits will appear
               </div>
               <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  navigator.clipboard.writeText(BOOKMARKLET_CODE).then(() => {
-                    alert("Bookmarklet code copied! Create a new bookmark, paste this as the URL, and click it on any Codeforces problem page.");
-                  }).catch(() => {
-                    window.open(BOOKMARKLET_CODE, "_blank");
-                  });
-                }}
+                onClick={() => { if (blockedUrl) window.open(blockedUrl, "_blank"); }}
                 style={{
-                  display: "inline-block", padding: "6px 14px", borderRadius: 6,
-                  background: "linear-gradient(135deg, #7c3aed, #4f46e5)", color: "white",
-                  fontSize: 12, fontWeight: 700, textDecoration: "none", cursor: "pointer",
-                  boxShadow: "0 2px 8px rgba(124,58,237,0.3)",
-                  border: "none", fontFamily: "inherit",
+                  padding: "6px 14px", borderRadius: 6, border: "1px solid var(--brand-cyan)",
+                  background: "rgba(34,211,238,0.1)", color: "var(--brand-cyan)",
+                  fontSize: 12, fontWeight: 600, cursor: "pointer",
                 }}
               >
-                📥 Copy Bookmarklet
+                Open Problem in Browser
               </button>
-            <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>
-              Step 2: Create a new bookmark in your browser, paste the copied code as the URL<br/>
-              Step 3: Open any Codeforces problem page in your browser<br/>
-              Step 4: Click the "Import to CodeOn" bookmark — problem + editorial are sent automatically<br/>
-              Step 5: The problem appears here instantly ✨
-            </div>
+              <textarea
+                value={manualPasteText}
+                onChange={(e) => setManualPasteText(e.target.value)}
+                placeholder="Paste the page source code here (Ctrl+V)..."
+                style={{
+                  width: "100%", minHeight: 60, marginTop: 8, padding: "6px 8px", borderRadius: 5,
+                  background: "var(--surface-1)", border: "1px solid var(--border-default)",
+                  color: "var(--text-primary)", fontSize: 11, fontFamily: "monospace",
+                  outline: "none", resize: "vertical",
+                }}
+              />
+              <button
+                onClick={handleManualPaste}
+                disabled={isScraping || !manualPasteText.trim()}
+                style={{
+                  marginTop: 6, padding: "6px 16px", borderRadius: 5, border: "none",
+                  background: "linear-gradient(135deg, var(--brand-violet), var(--brand-indigo))",
+                  color: "white", fontSize: 12, fontWeight: 600,
+                  cursor: (isScraping || !manualPasteText.trim()) ? "not-allowed" : "pointer",
+                  opacity: (isScraping || !manualPasteText.trim()) ? 0.6 : 1,
+                }}
+              >
+                Parse Pasted Content
+              </button>
             </div>
 
-            {/* Manual paste fallback */}
+            {/* Option 2: Bookmarklet (Advanced) */}
             <details style={{ marginTop: 8 }}>
-              <summary style={{ fontSize: 10, color: "var(--text-muted)", cursor: "pointer", padding: "4px 0" }}>
-                Or manually paste page HTML (advanced)
+              <summary style={{ fontSize: 12, fontWeight: 600, color: "var(--brand-violet-light)", cursor: "pointer", padding: "4px 0" }}>
+                Option 2: Use a Bookmarklet (One-click after setup)
               </summary>
-              <div style={{ marginTop: 6 }}>
+              <div style={{ marginTop: 8, padding: 10, background: "var(--surface-2)", borderRadius: 6, border: "1px dashed var(--border-violet)" }}>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.7, marginBottom: 8 }}>
+                  <strong style={{ color: "var(--text-secondary)" }}>Step 1:</strong> Click "Copy Bookmarklet" below — the code is copied to your clipboard<br/>
+                  <strong style={{ color: "var(--text-secondary)" }}>Step 2:</strong> Add a new bookmark in your browser (Ctrl+D in Chrome, then "More...")<br/>
+                  <strong style={{ color: "var(--text-secondary)" }}>Step 3:</strong> Name it "Import to CodeOn", paste the copied code as the URL<br/>
+                  <strong style={{ color: "var(--text-secondary)" }}>Step 4:</strong> Open any Codeforces problem page in your browser<br/>
+                  <strong style={{ color: "var(--text-secondary)" }}>Step 5:</strong> Click the "Import to CodeOn" bookmark — problem + editorial sent automatically<br/>
+                  <strong style={{ color: "var(--text-secondary)" }}>Step 6:</strong> The problem appears here instantly — no copy-paste needed
+                </div>
                 <button
-                  onClick={() => { if (blockedUrl) window.open(blockedUrl, "_blank"); }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    navigator.clipboard.writeText(BOOKMARKLET_CODE).then(() => {
+                      alert("Bookmarklet code copied!\n\nNow:\n1. Add a new bookmark in your browser\n2. Name it 'Import to CodeOn'\n3. Paste the copied code as the URL\n4. Click it on any Codeforces problem page");
+                    }).catch(() => {
+                      prompt("Copy this code and paste it as a new bookmark URL:", BOOKMARKLET_CODE);
+                    });
+                  }}
                   style={{
-                    padding: "5px 10px", borderRadius: 5, border: "1px solid var(--brand-cyan)",
-                    background: "rgba(34,211,238,0.1)", color: "var(--brand-cyan)",
-                    fontSize: 11, fontWeight: 600, cursor: "pointer", marginBottom: 6,
+                    padding: "6px 14px", borderRadius: 6, border: "none",
+                    background: "linear-gradient(135deg, #7c3aed, #4f46e5)", color: "white",
+                    fontSize: 12, fontWeight: 700, cursor: "pointer",
+                    boxShadow: "0 2px 8px rgba(124,58,237,0.3)",
+                    fontFamily: "inherit",
                   }}
                 >
-                  Open Problem in Browser
-                </button>
-                <textarea
-                  value={manualPasteText}
-                  onChange={(e) => setManualPasteText(e.target.value)}
-                  placeholder="Right-click → View Page Source → copy all → paste here"
-                  style={{
-                    width: "100%", minHeight: 60, padding: "6px 8px", borderRadius: 5,
-                    background: "var(--surface-1)", border: "1px solid var(--border-default)",
-                    color: "var(--text-primary)", fontSize: 11, fontFamily: "monospace",
-                    outline: "none", resize: "vertical",
-                  }}
-                />
-                <button
-                  onClick={handleManualPaste}
-                  disabled={isScraping || !manualPasteText.trim()}
-                  style={{
-                    marginTop: 6, padding: "5px 12px", borderRadius: 5, border: "none",
-                    background: "linear-gradient(135deg, var(--brand-violet), var(--brand-indigo))",
-                    color: "white", fontSize: 11, fontWeight: 600,
-                    cursor: (isScraping || !manualPasteText.trim()) ? "not-allowed" : "pointer",
-                    opacity: (isScraping || !manualPasteText.trim()) ? 0.6 : 1,
-                  }}
-                >
-                  Parse Pasted Content
+                  Copy Bookmarklet
                 </button>
               </div>
             </details>
@@ -498,7 +507,7 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
             <button
               onClick={() => { setShowManualPaste(false); setBlockedUrl(null); setScrapeError(null); }}
               style={{
-                marginTop: 8, padding: "5px 10px", borderRadius: 5, border: "1px solid var(--border-default)",
+                marginTop: 10, padding: "5px 10px", borderRadius: 5, border: "1px solid var(--border-default)",
                 background: "var(--surface-2)", color: "var(--text-muted)",
                 fontSize: 11, cursor: "pointer",
               }}
