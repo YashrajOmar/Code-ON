@@ -67,6 +67,23 @@ interface ProblemPanelProps {
   problemData?: ProblemData | null;
 }
 
+// Bookmarklet code — stored as a string to avoid JSX parsing issues with </ in selectors
+const BOOKMARKLET_CODE = [
+  "javascript:(async function(){",
+  "const html=document.documentElement.outerHTML;",
+  "const url=location.href;",
+  "let edHtml=null;",
+  "const t=document.querySelector('a[href*=\"/blog/entry/\"]');",
+  "if(t){try{const r=await fetch(t.href);edHtml=await r.text();}catch(e){}}",
+  "const r=await fetch('https://codeon-coding-coach-eight.vercel.app/api/problem/bookmarklet',",
+  "{method:'POST',headers:{'Content-Type':'application/json'},",
+  "body:JSON.stringify({url,html,editorialHtml:edHtml})});",
+  "const d=await r.json();",
+  "if(d.success){alert('Problem sent to CodeOn: '+d.problem.title);}",
+  "else{alert('Failed: '+d.error);}",
+  "})()"
+].join("");
+
 export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadDone, activeTab: externalTab, problemData: externalProblem }: ProblemPanelProps) {
   const [internalTab, setTab] = useState<"statement" | "trail" | "editorial">("statement");
   const tab = externalTab ?? internalTab;
@@ -405,7 +422,7 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
                 Step 1: Drag this to your bookmarks bar
               </div>
               <a
-                href="javascript:(async function(){const html=document.documentElement.outerHTML;const url=location.href;let edHtml=null;const t=document.querySelector('a[href*="/blog/entry/"]');if(t){try{const r=await fetch(t.href);edHtml=await r.text();}catch(e){}}const r=await fetch('https://codeon-coding-coach-eight.vercel.app/api/problem/bookmarklet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url,html,editorialHtml:edHtml})});const d=await r.json();if(d.success){alert('Problem sent to CodeOn: '+d.problem.title);}else{alert('Failed: '+d.error);}})()"
+                href={BOOKMARKLET_CODE}
                 onClick={(e) => e.preventDefault()}
                 style={{
                   display: "inline-block", padding: "6px 14px", borderRadius: 6,
