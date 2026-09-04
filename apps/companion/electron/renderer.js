@@ -154,14 +154,27 @@ async function checkConnection() {
   }
   await checkConnection();
 
-  // Check actual login status via cookies (don't blindly show "Logged In")
-  document.querySelectorAll(".login-btn").forEach(async (btn) => {
+  // Check actual login status via active session verification
+  // Sequential, not parallel — prevents memory spikes
+  const loginBtns = document.querySelectorAll(".login-btn");
+  for (const btn of loginBtns) {
     const platform = btn.dataset.login;
     try {
       const status = await window.codeon.checkLoginStatus({ platform });
       if (status.loggedIn) {
         btn.classList.add("logged-in");
         btn.textContent = "Logged In";
+
+        // Auto-fill handle from verified session + make input readonly
+        if (status.handle) {
+          const handleInput = document.querySelector(`input[data-platform="${platform}"]`);
+          if (handleInput) {
+            handleInput.value = status.handle;
+            handleInput.readOnly = true;
+            handleInput.style.opacity = "0.7";
+            handleInput.style.cursor = "not-allowed";
+          }
+        }
       } else {
         btn.classList.remove("logged-in");
         btn.textContent = "Login Required";
@@ -169,7 +182,7 @@ async function checkConnection() {
     } catch {
       btn.textContent = "Login";
     }
-  });
+  }
 })();
 
 window.codeon.onStatus((msg) => addStatus(msg, "info"));
@@ -181,6 +194,19 @@ async function checkLoginStatus(platform, btn, platformName) {
     btn.classList.add("logged-in");
     btn.textContent = "Logged In";
     addStatus(`[${platformName}] Login verified ✓`, "success");
+
+    // Auto-fill handle from verified session + make input readonly
+    if (status.handle) {
+      const handleInput = document.querySelector(`input[data-platform="${platform}"]`);
+      if (handleInput) {
+        handleInput.value = status.handle;
+        handleInput.readOnly = true;
+        handleInput.style.opacity = "0.7";
+        handleInput.style.cursor = "not-allowed";
+        addStatus(`[${platformName}] Handle auto-detected: ${status.handle}`, "info");
+        saveSettings();
+      }
+    }
   } else {
     btn.classList.remove("logged-in");
     btn.textContent = "Login";

@@ -398,6 +398,11 @@ async function getBrowser(visible) {
 // ── Handle Validation ──────────────────────────────────────────────────────
 ipcMain.handle("validate-handle", async (_, { platform, handle }) => {
   try {
+    // Sanitize: reject handles with spaces or invalid chars
+    if (!handle || !/^[a-zA-Z0-9_\-\.]+$/.test(handle)) {
+      return { valid: false, error: "Handle can only contain letters, numbers, dots, hyphens, and underscores" };
+    }
+
     if (platform === "codeforces") {
       const res = await fetch(`https://codeforces.com/api/user.info?handles=${handle}`);
       if (!res.ok) return { valid: false, error: `HTTP ${res.status}` };
@@ -447,55 +452,186 @@ ipcMain.handle("validate-handle", async (_, { platform, handle }) => {
 
 // Shared session cookie map for all platforms
 const SESSION_COOKIE_MAP = {
-  codeforces: { cookies: ['X-User-Sn', 'rc', 'CF_ORG_ID'], domains: ['codeforces.com'] },
-  leetcode: { cookies: ['LEETCODE_SESSION', 'csrftoken'], domains: ['leetcode.com'] },
-  atcoder: { cookies: ['REVEL_SESSION', 'ARBCID'], domains: ['atcoder.jp'] },
-  codechef: { cookies: ['session', 'CCA'], domains: ['codechef.com'] },
-  hackerrank: { cookies: ['_hrank_session', 'hackajob_session'], domains: ['hackerrank.com'] },
-  spoj: { cookies: ['SPOJ_SESSION', 'spoj_session'], domains: ['spoj.com'] },
+  codeforces: { cookies: ['X-User-Sn', 'rc', 'CF_ORG_ID'], loginUrl: 'https://codeforces.com/enter', profileUrl: 'https://codeforces.com/api/user.info?handles=' },
+  leetcode: { cookies: ['LEETCODE_SESSION', 'csrftoken'], loginUrl: 'https://leetcode.com/accounts/login/', profileUrl: 'https://leetcode.com/profile/' },
+  atcoder: { cookies: ['REVEL_SESSION', 'ARBCID'], loginUrl: 'https://atcoder.jp/login', profileUrl: 'https://atcoder.jp/users/' },
+  codechef: { cookies: ['session', 'CCA'], loginUrl: 'https://www.codechef.com/login', profileUrl: 'https://www.codechef.com/' },
+  hackerrank: { cookies: ['_hrank_session', 'hackajob_session'], loginUrl: 'https://www.hackerrank.com/login', profileUrl: 'https://www.hackerrank.com/' },
+  spoj: { cookies: ['SPOJ_SESSION', 'spoj_session'], loginUrl: 'https://www.spoj.com/login/', profileUrl: 'https://www.spoj.com/' },
 };
 
-async function checkCookiesForPlatform(platform) {
+// ── Active session verification (hybrid: cookies first, then API check) ──────
+async function verifyActiveSession(platform) {
   if (!browserContext) {
-    return { loggedIn: false };
-  }
-
-  let cookies = [];
-  try {
-    cookies = await browserContext.cookies();
-  } catch {
-    return { loggedIn: false };
+    return { loggedIn: false, handle: null };
   }
 
   const config = SESSION_COOKIE_MAP[platform];
   if (!config) {
-    return { loggedIn: false };
+    return { loggedIn: false, handle: null };
   }
 
-  // Strategy 1: Exact session cookie name match
+  // STEP 1: Check if session cookies exist at all (fast, no browser page needed)
+  let cookies = [];
+  try {
+    cookies = await browserContext.cookies();
+  } catch {
+    return { loggedIn: false, handle: null };
+  }
+
   const foundCookies = cookies.filter(c => config.cookies.some(r => c.name === r));
-  let loggedIn = foundCookies.length > 0;
-
-  // Strategy 2: Domain-based fallback — if exact name match failed, check if
-  // ANY cookies exist for the platform's domain (means user at least visited + logged in)
-  if (!loggedIn) {
-    const domainCookies = cookies.filter(c =>
-      config.domains.some(d => c.domain.includes(d))
-    );
-    loggedIn = domainCookies.length > 0;
-    if (loggedIn) {
-      console.log(`[LoginCheck] ${platform}: No exact session cookie match, but ${domainCookies.length} domain cookies found → loggedIn: true (domain fallback)`);
-    }
+  if (foundCookies.length === 0) {
+    // No session cookie at all → definitely not logged in, no need to open a page
+    console.log(`[LoginCheck] ${platform}: No session cookies found → not logged in`);
+    return { loggedIn: false, handle: null };
   }
 
-  console.log(`[LoginCheck] ${platform}: ${cookies.length} total cookies, ${foundCookies.length} session cookies, names: [${foundCookies.map(c => c.name).join(', ')}] → loggedIn: ${loggedIn}`);
+  // STEP 2: Session cookies exist — verify they're still valid via lightweight API
+  let page;
+  try {
+    page = await browserContext.newPage();
 
-  return { loggedIn };
+    if (platform === 'codeforces') {
+      // Use API request (lightweight, no full page render)
+      const response = await page.goto('https://codeforces.com/api/user.info?handles=me', { waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => null);
+      if (!response) {
+        await page.close();
+        return { loggedIn: false, handle: null };
+      }
+      const text = await response.text().catch(() => '');
+      // If API returns "OK" with user data, we're logged in via cookies
+      // If it returns "FAILED" or redirects, we're not
+      // Actually CF API doesn't use cookies — instead check the homepage for profile link
+      await page.goto('https://codeforces.com/', { waitUntil: 'domcontentloaded', timeout: 15000 });
+      const profileLink = await page.$('a[href^="/profile/"]');
+      if (profileLink) {
+        const href = await profileLink.getAttribute('href');
+        const handle = href?.replace('/profile/', '') || null;
+        await page.close();
+        console.log(`[LoginCheck] codeforces: Active session, handle=${handle}`);
+        return { loggedIn: true, handle };
+      }
+      await page.close();
+      console.log(`[LoginCheck] codeforces: Session cookies exist but no profile link → not logged in`);
+      return { loggedIn: false, handle: null };
+    }
+
+    if (platform === 'leetcode') {
+      // Use GraphQL API request (lightweight, avoids full page load + Cloudflare)
+      const result = await page.evaluate(async () => {
+        try {
+          const res = await fetch('https://leetcode.com/graphql', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              query: `query { userStatus { username isLoggedIn } }`,
+            }),
+          });
+          if (!res.ok) return { loggedIn: false, handle: null };
+          const data = await res.json();
+          const status = data?.data?.userStatus;
+          if (status?.isLoggedIn) {
+            return { loggedIn: true, handle: status.username || null };
+          }
+          return { loggedIn: false, handle: null };
+        } catch {
+          return { loggedIn: false, handle: null };
+        }
+      });
+      await page.close();
+      console.log(`[LoginCheck] leetcode: GraphQL userStatus → loggedIn=${result.loggedIn}, handle=${result.handle}`);
+      return result;
+    }
+
+    if (platform === 'atcoder') {
+      // Visit AtCoder homepage, check for logout link
+      await page.goto('https://atcoder.jp/', { waitUntil: 'domcontentloaded', timeout: 15000 });
+      const logoutLink = await page.$('a[href*="logout"]');
+      const isLoggedIn = !!logoutLink;
+      let handle = null;
+      if (isLoggedIn) {
+        const userLink = await page.$('a[href^="/users/"]');
+        if (userLink) {
+          const href = await userLink.getAttribute('href');
+          handle = href?.replace('/users/', '') || null;
+        }
+      }
+      await page.close();
+      console.log(`[LoginCheck] atcoder: loggedIn=${isLoggedIn}, handle=${handle}`);
+      return { loggedIn: isLoggedIn, handle };
+    }
+
+    if (platform === 'codechef') {
+      // Use CodeChef API to check session
+      await page.goto('https://www.codechef.com/', { waitUntil: 'domcontentloaded', timeout: 15000 });
+      const isLoggedIn = await page.evaluate(() => {
+        return !document.querySelector('a[href*="/login"]');
+      });
+      let handle = null;
+      if (isLoggedIn) {
+        const userLink = await page.$('a[href^="/users/"]');
+        if (userLink) {
+          const href = await userLink.getAttribute('href');
+          handle = href?.replace('/users/', '') || null;
+        }
+      }
+      await page.close();
+      console.log(`[LoginCheck] codechef: loggedIn=${isLoggedIn}, handle=${handle}`);
+      return { loggedIn: isLoggedIn, handle };
+    }
+
+    if (platform === 'hackerrank') {
+      // Use HackerRank REST API to check session
+      const result = await page.evaluate(async () => {
+        try {
+          const res = await fetch('https://www.hackerrank.com/rest/contests/master/hacker/me/profile');
+          if (!res.ok) return { loggedIn: false, handle: null };
+          const data = await res.json();
+          if (data?.status === true && data?.model?.username) {
+            return { loggedIn: true, handle: data.model.username };
+          }
+          return { loggedIn: false, handle: null };
+        } catch {
+          return { loggedIn: false, handle: null };
+        }
+      });
+      await page.close();
+      console.log(`[LoginCheck] hackerrank: API check → loggedIn=${result.loggedIn}, handle=${result.handle}`);
+      return result;
+    }
+
+    if (platform === 'spoj') {
+      // Visit SPOJ homepage, check for logout link
+      await page.goto('https://www.spoj.com/', { waitUntil: 'domcontentloaded', timeout: 15000 });
+      const logoutLink = await page.$('a[href*="logout"]');
+      const isLoggedIn = !!logoutLink;
+      let handle = null;
+      if (isLoggedIn) {
+        const userLink = await page.$('a[href^="/users/"]');
+        if (userLink) {
+          const href = await userLink.getAttribute('href');
+          handle = href?.replace('/users/', '') || null;
+        }
+      }
+      await page.close();
+      console.log(`[LoginCheck] spoj: loggedIn=${isLoggedIn}, handle=${handle}`);
+      return { loggedIn: isLoggedIn, handle };
+    }
+
+    // Unknown platform
+    await page.close();
+    return { loggedIn: false, handle: null };
+
+  } catch (e) {
+    if (page) try { await page.close(); } catch {}
+    console.log(`[LoginCheck] ${platform}: Error: ${e.message}`);
+    return { loggedIn: false, handle: null };
+  }
 }
 
 ipcMain.handle("check-login-status", async (_, { platform }) => {
   try {
-    const result = await checkCookiesForPlatform(platform);
+    const result = await verifyActiveSession(platform);
 
     // If logged in, purge the failed queue for this platform
     if (result.loggedIn) {
@@ -510,7 +646,7 @@ ipcMain.handle("check-login-status", async (_, { platform }) => {
     return result;
   } catch (e) {
     console.error(`[LoginCheck] ${platform}: Error:`, e.message);
-    return { loggedIn: false };
+    return { loggedIn: false, handle: null };
   }
 });
 
@@ -600,22 +736,11 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken, isAutoSyn
 
   const authToken = companionToken.trim();
 
-  // ── AUTH GATE: Check cookies from EXISTING browserContext only ────────────
-  // Do NOT call getBrowser() or newPage() here. If no browser exists, we
-  // can't check cookies -> assume not logged in -> skip all platforms.
-  const platformCookieMap = {
-    codeforces: ['CF_ORG_ID', 'X-User-Sn', 'rc'],
-    leetcode: ['LEETCODE_SESSION', 'csrftoken'],
-    atcoder: ['REVEL_SESSION', 'ARBCID'],
-  };
-
+  // ── AUTH GATE: Check cookies from existing browserContext ────────────────
   let allAuthFailed = true;
   const authenticatedPlatforms = new Set();
   let cookies = [];
 
-  // Read cookies from existing browserContext ONLY.
-  // Do NOT launch a temp headless context here — it conflicts with visible Chrome
-  // if the user clicked Login. If no browser is open, all platforms skip.
   if (browserContext) {
     try {
       cookies = await browserContext.cookies();
@@ -627,15 +752,9 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken, isAutoSyn
   for (const [platform, handle] of Object.entries(handles)) {
     if (!handle || !handle.trim()) continue;
     const config = SESSION_COOKIE_MAP[platform];
-    if (!config) {
-      continue;
-    }
-    // Strategy 1: Exact session cookie name match
-    let hasSession = cookies.some(c => config.cookies.some(r => c.name === r));
-    // Strategy 2: Domain-based fallback
-    if (!hasSession) {
-      hasSession = cookies.some(c => config.domains.some(d => c.domain.includes(d)));
-    }
+    if (!config) continue;
+    // Exact cookie name match only — no domain fallback (too permissive)
+    const hasSession = cookies.some(c => config.cookies.some(r => c.name === r));
     if (hasSession) {
       authenticatedPlatforms.add(platform);
       allAuthFailed = false;
