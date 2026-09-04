@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  parseCFProblemHtml,
-  parseCFEditorialHtml,
   extractCFProblemId,
-  extractSpecificEditorialHtml,
   postProcessScrapedProblem,
   mapToPublicScrapedProblemDTO,
   ScrapedProblemSchema,
+  ProblemScraperService,
 } from '@codeon/scrapers';
-import { ProblemScraperService } from '@codeon/scrapers';
 import { getActiveProvider } from '@/lib/ai-providers';
 import { prisma } from '@/lib/prisma';
 
@@ -64,6 +61,22 @@ async function aiCall(provider: any, prompt: string): Promise<string | null> {
   return null;
 }
 
+// Strip HTML to plain text without cheerio (cheerio not in apps/web dependencies)
+function stripHtml(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/</g, '<')
+    .replace(/>/g, '>')
+    .replace(/&/g, '&')
+    .replace(/&#39;/g, "'")
+    .replace(/"/g, '"')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { url, html, editorialHtml, referenceSolutions } = await req.json();
@@ -81,8 +94,8 @@ export async function POST(req: NextRequest) {
     const problemLetter = index.toUpperCase();
     const problemId = `${contestId}${index}`;
 
-    // 1. Fetch CF API metadata
-    let cfProblem: { name?: string; rating?: number; tags?: string[] } = {};
+    // 1. Fetch CF API metadata (not blocked by Cloudflare)
+    let cfProblem: { name?: string; rating?: number; tags?: string[]; timeLimit?: number; memoryLimit?: number } = {};
     try {
       const apiUrl = `https://codeforces.com/api/problemset.problems?tags=`;
       const apiRes = await fetch(apiUrl, { signal: AbortSignal.timeout(10000) });
@@ -93,46 +106,65 @@ export async function POST(req: NextRequest) {
             (p: any) => String(p.contestId) === contestId && p.index === index,
           );
           if (found) {
-            cfProblem = { name: found.name, rating: found.rating, tags: found.tags || [] };
+            cfProblem = {
+              name: found.name,
+              rating: found.rating,
+              tags: found.tags || [],
+              timeLimit: found.timeLimit,
+              memoryLimit: found.memoryLimit,
+            };
           }
         }
       }
     } catch {}
 
-    // 2. Parse problem HTML using @codeon/scrapers (cheerio is in that package)
-    const pageData = parseCFProblemHtml(html);
+    // 2. The bookmarklet sends the .problem-statement div HTML.
+    // Save it DIRECTLY — do NOT convert to markdown (mangles LaTeX).
+    // The frontend's ProblemStatementView renders raw HTML via rehypeRaw + remarkMath + rehypeKatex.
+    const statementHtml = html;
 
-    if (!pageData.statement || pageData.statement.trim().length < 10) {
+    if (!statementHtml || statementHtml.trim().length < 20) {
       return NextResponse.json({ error: 'Could not extract problem statement from HTML' }, { status: 422, headers: corsHeaders });
     }
 
-    // Use raw HTML for the problem statement — frontend renders it with rehypeRaw + remarkMath
-    const statementContent = pageData.rawStatementHtml || pageData.statement;
+    // 3. Extract examples from the HTML (simple regex, no cheerio needed)
+    const examples: Array<{ input: string; output: string }> = [];
+    // CF examples are in .input pre and .output pre
+    const inputMatches = statementHtml.match(/class="input"[^>]*>[\s\S]*?<pre[^>]*>([\s\S]*?)<\/pre>/gi) || [];
+    const outputMatches = statementHtml.match(/class="output"[^>]*>[\s\S]*?<pre[^>]*>([\s\S]*?)<\/pre>/gi) || [];
 
-    // 3. Extract editorial — cheerio fallback FIRST (fast, preserves LaTeX)
-    let editorialMarkdown: string | undefined;
-    if (editorialHtml) {
-      // Use extractSpecificEditorialHtml — finds the correct problem's section
-      // using .html() (not .text()) to preserve LaTeX math wrappers
-      editorialMarkdown = extractSpecificEditorialHtml(editorialHtml, contestId, index);
+    for (let i = 0; i < Math.min(inputMatches.length, outputMatches.length); i++) {
+      const inputHtml = inputMatches[i].match(/<pre[^>]*>([\s\S]*?)<\/pre>/i)?.[1] || '';
+      const outputHtml = outputMatches[i].match(/<pre[^>]*>([\s\S]*?)<\/pre>/i)?.[1] || '';
+      const cleanInput = inputHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<\/?[^>]+(>|$)/g, '').replace(/</g, '<').replace(/>/g, '>').replace(/&/g, '&').replace(/\n{2,}/g, '\n').trim();
+      const cleanOutput = outputHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<\/?[^>]+(>|$)/g, '').replace(/</g, '<').replace(/>/g, '>').replace(/&/g, '&').replace(/\n{2,}/g, '\n').trim();
+      if (cleanInput || cleanOutput) {
+        examples.push({ input: cleanInput, output: cleanOutput });
+      }
     }
 
-    // 4. AI extract editorial ONLY if cheerio fallback failed or returned too little
-    if (editorialHtml && (!editorialMarkdown || editorialMarkdown.length < 50)) {
+    // 4. AI extract editorial for the SPECIFIC problem (with reference code)
+    let editorialMarkdown: string | undefined;
+
+    if (editorialHtml) {
       const provider = await getActiveProvider();
       if (provider) {
-        const rawEditorial = parseCFEditorialHtml(editorialHtml);
-        if (rawEditorial && rawEditorial.length > 20) {
-          const refCode = referenceSolutions && referenceSolutions.length > 0
-            ? referenceSolutions[0].code.substring(0, 1500)
-            : '';
+        // Strip HTML to plain text (no cheerio needed)
+        const plainText = stripHtml(editorialHtml).substring(0, 8000);
 
-          const editorialPrompt = `You are given a Codeforces editorial blog post for contest ${contestId}. It contains editorials for MULTIPLE problems.
+        const refCode = referenceSolutions && referenceSolutions.length > 0
+          ? referenceSolutions[0].code.substring(0, 1500)
+          : '';
 
-CRITICAL: Extract ONLY the editorial for Problem ${problemLetter} (${cfProblem.name || 'unknown'}).
+        const editorialPrompt = `You are given a Codeforces editorial blog post for contest ${contestId}. It contains editorials for MULTIPLE problems (A, B, C, D, E, F).
 
-The blog post has sections like "Problem A", "116A", "A - Tram", "Problem E", "116E", etc.
-You MUST find Problem ${problemLetter}. Do NOT give me Problem A if I asked for Problem ${problemLetter}.
+CRITICAL INSTRUCTION: Extract ONLY the editorial for Problem ${problemLetter} (${cfProblem.name || 'unknown'}).
+
+The blog post uses headers or links like:
+- "Problem A" or "116A" or "A - Tram" or a link to /contest/116/problem/A
+- "Problem E" or "116E" or "E - Tram" or a link to /contest/116/problem/E
+
+You MUST find the section for Problem ${problemLetter}. Do NOT give me Problem A if I asked for Problem ${problemLetter}.
 
 Format as clean markdown:
 ## Approach
@@ -141,21 +173,20 @@ Format as clean markdown:
 ## Complexity
 (time and space complexity)
 
-## Code
-${refCode ? '```cpp\n' + refCode + '\n```' : '(no reference code available)'}
+## Reference Solution
+${refCode ? '```cpp\n' + refCode + '\n```' : '(no reference solution was provided)'}
 
-Plain text editorial:
-${rawEditorial.substring(0, 6000)}
+Plain text of the editorial blog post:
+${plainText}
 
-Output ONLY the editorial for Problem ${problemLetter}.`;
+Output ONLY the editorial for Problem ${problemLetter}. If Problem ${problemLetter} is genuinely not mentioned, output: "Editorial not available for Problem ${problemLetter}."`;
 
-          const aiEditorial = await aiCall(provider, editorialPrompt);
-          if (aiEditorial) editorialMarkdown = aiEditorial;
-        }
+        const aiEditorial = await aiCall(provider, editorialPrompt);
+        if (aiEditorial) editorialMarkdown = aiEditorial;
       }
     }
 
-    // 5. Build ScrapedProblem
+    // 5. Build ScrapedProblem — RAW HTML for statement
     const problem = {
       id: problemId,
       url,
@@ -163,13 +194,13 @@ Output ONLY the editorial for Problem ${problemLetter}.`;
       title: cfProblem.name || `Problem ${problemId}`,
       isInteractive: cfProblem.tags?.includes('interactive') ?? false,
       content: {
-        problemStatementMarkdown: statementContent,
+        problemStatementMarkdown: statementHtml,
         constraintsMarkdown:
-          `- **Time Limit:** ${pageData.timeLimitMs ? pageData.timeLimitMs / 1000 + ' seconds' : 'Unknown'}\n` +
-          `- **Memory Limit:** ${pageData.memoryLimitKb ? pageData.memoryLimitKb / 1024 + ' MB' : 'Unknown'}`,
+          `- **Time Limit:** ${cfProblem.timeLimit ? cfProblem.timeLimit + ' seconds' : 'Unknown'}\n` +
+          `- **Memory Limit:** ${cfProblem.memoryLimit ? cfProblem.memoryLimit + ' MB' : 'Unknown'}`,
         editorialMarkdown,
       },
-      examples: pageData.examples.map((ex, i) => ({
+      examples: examples.map((ex, i) => ({
         testId: i + 1,
         input: ex.input,
         output: ex.output,
