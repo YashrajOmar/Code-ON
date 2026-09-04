@@ -98,6 +98,17 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
   const [manualPasteText, setManualPasteText] = useState("");
   const [blockedUrl, setBlockedUrl] = useState<string | null>(null);
 
+  // Auto-close manual paste panel when a problem arrives via SSE (bookmarklet/companion)
+  useEffect(() => {
+    if (externalProblem && showManualPaste) {
+      setShowManualPaste(false);
+      setBlockedUrl(null);
+      setScrapeError(null);
+      setManualPasteText("");
+      setUrlInput("");
+    }
+  }, [externalProblem, showManualPaste]);
+
   const setScrapedProblem = useProblemStore((state) => state.setScrapedProblem);
   const { code: editorCode } = useIDEStore();
 
@@ -119,103 +130,6 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
     setInternalProblem(pData);
     setScrapedProblem(p as any);
     onProblemLoaded?.(pData);
-  }
-
-  // ── Companion app fallback: scrape CF via the companion's real Chrome browser ─
-  async function tryCompanionScrape(url: string): Promise<boolean> {
-    try {
-      setScrapeProgress("Checking for Companion app...");
-
-      // Step 1: Check if companion is running
-      const healthRes = await fetch("http://localhost:17890/health", {
-        signal: AbortSignal.timeout(3000),
-      }).catch(() => null);
-
-      if (!healthRes || !healthRes.ok) {
-        return false;
-      }
-
-      // Step 2: Scrape problem + editorial via companion (one request)
-      setScrapeProgress("Companion: Opening Codeforces in Chrome...");
-      const scrapeRes = await fetch("http://localhost:17890/scrape-cf-problem", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-        signal: AbortSignal.timeout(60000),
-      }).catch(() => null);
-
-      if (!scrapeRes || !scrapeRes.ok) {
-        const errData = scrapeRes ? await scrapeRes.json().catch(() => ({})) : {};
-        setScrapeError(`Companion scrape failed: ${errData.error || "unknown error"}`);
-        return false;
-      }
-
-      const { problemHtml, editorialHtml } = await scrapeRes.json();
-      if (!problemHtml || !problemHtml.includes("problem-statement")) {
-        setScrapeError("Companion returned HTML but no problem statement found");
-        return false;
-      }
-
-      // Step 3: Parse the HTML via the web app's parse endpoint
-      setScrapeProgress("Companion: Parsing problem...");
-      const parseRes = await fetch("/api/problem/parse", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, problemHtml, editorialHtml }),
-      });
-
-      if (!parseRes.ok) {
-        const errData = await parseRes.json().catch(() => ({}));
-        setScrapeError(`Parse failed: ${errData.error || "unknown error"}`);
-        return false;
-      }
-
-      const { problem, tutorialUrl } = await parseRes.json();
-
-      // Step 4: If editorial not yet scraped but tutorialUrl exists, fetch it via companion
-      if (problem && tutorialUrl && !problem.content?.editorialMarkdown) {
-        setScrapeProgress("Companion: Fetching editorial...");
-        try {
-          const edRes = await fetch("http://localhost:17890/scrape", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: tutorialUrl }),
-            signal: AbortSignal.timeout(30000),
-          });
-          if (edRes.ok) {
-            const { html: edHtml } = await edRes.json();
-            if (edHtml) {
-              const parseRes2 = await fetch("/api/problem/parse", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ url, problemHtml, editorialHtml: edHtml }),
-              });
-              if (parseRes2.ok) {
-                const data2 = await parseRes2.json();
-                if (data2.problem) {
-                  updateProblem(data2.problem);
-                  setUrlInput("");
-                  setTab("statement");
-                  return true;
-                }
-              }
-            }
-          }
-        } catch {}
-      }
-
-      if (problem) {
-        updateProblem(problem);
-        setUrlInput("");
-        setTab("statement");
-        return true;
-      }
-
-      setScrapeError("Companion returned data but parsing produced no problem");
-      return false;
-    } catch {
-      return false;
-    }
   }
 
   // ── Manual paste fallback ──────────────────────────────────────────────────
@@ -324,12 +238,8 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
                 }
               } else if (eventName === "blocked") {
                 setBlockedUrl(url.trim());
-                setScrapeProgress("Codeforces blocked. Trying Companion app...");
-                const companionOk = await tryCompanionScrape(url.trim());
-                if (!companionOk) {
-                  setScrapeError(data.message || "Codeforces blocked. Use the bookmarklet or paste the problem manually.");
-                  setShowManualPaste(true);
-                }
+                setScrapeError(data.message || "Codeforces blocked. Use the bookmarklet or paste the problem source below.");
+                setShowManualPaste(true);
               } else if (eventName === "error") {
                 if (url.includes('codeforces.com')) {
                   setBlockedUrl(url.trim());

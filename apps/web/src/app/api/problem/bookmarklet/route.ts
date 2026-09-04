@@ -69,20 +69,31 @@ export async function POST(req: NextRequest) {
     let editorialMarkdown: string | undefined;
     if (editorialHtml) {
       editorialMarkdown = parseCFEditorialHtml(editorialHtml);
-      if (editorialMarkdown && editorialMarkdown.length > 500) {
-        const extracted = extractProblemSection(editorialMarkdown, contestId, index);
-        if (extracted.length > 100) {
-          editorialMarkdown = extracted;
-        }
-      }
     }
 
-    // 4. AI structuring of editorial (if API key available)
+    // 4. AI structuring — extract ONLY this problem's editorial from the full blog post
     if (editorialMarkdown && editorialMarkdown.length > 20) {
       try {
         const provider = await getActiveProvider();
         if (provider) {
-          const prompt = `You are given a raw editorial for a competitive programming problem. Clean it up into well-structured markdown with clear sections. Remove any navigation links, author info, or page headers. Keep only the actual editorial content.\n\nProblem: ${cfProblem.name || `Problem ${contestId}${index}`}\nRaw editorial:\n${editorialMarkdown.substring(0, 3000)}\n\nOutput ONLY the cleaned editorial in markdown. Structure it as:\n## Approach\n(explain the approach)\n\n## Complexity\n(time and space complexity)`;
+          const problemId = `${contestId}${index}`;
+          const prompt = `You are given a raw Codeforces editorial blog post. It contains editorials for MULTIPLE problems (A, B, C, D, E, F).
+
+Your job: Extract ONLY the editorial for problem ${problemId} (${cfProblem.name || 'unknown'}). Discard everything else — announcements, rants, standings, other problems' editorials.
+
+Then format it as clean markdown:
+## Approach
+(explain the approach for ${problemId} only)
+
+## Complexity
+(time and space complexity)
+
+If there is code, format it in code blocks.
+
+Raw blog post:
+${editorialMarkdown.substring(0, 4000)}
+
+Output ONLY the editorial for problem ${problemId}. If ${problemId} is not mentioned, output "Editorial not available for this problem."`;
 
           if (provider.format === 'gemini') {
             const { GoogleGenAI } = await import('@google/genai');
@@ -94,7 +105,7 @@ export async function POST(req: NextRequest) {
             const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${provider.apiKey}` },
-              body: JSON.stringify({ model: provider.model, messages: [{ role: 'user', content: prompt }], temperature: 0.3, max_tokens: 2000 }),
+              body: JSON.stringify({ model: provider.model, messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 2000 }),
               signal: AbortSignal.timeout(30000),
             });
             if (res.ok) {
@@ -102,9 +113,24 @@ export async function POST(req: NextRequest) {
               const text = data.choices?.[0]?.message?.content;
               if (text && text.trim().length > 50) editorialMarkdown = text.trim();
             }
+          } else if (provider.format === 'anthropic') {
+            const baseUrl = provider.baseUrl || 'https://api.anthropic.com';
+            const res = await fetch(`${baseUrl.replace(/\/$/, '')}/v1/messages`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-api-key': provider.apiKey, 'anthropic-version': '2023-06-01' },
+              body: JSON.stringify({ model: provider.model, messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 2000 }),
+              signal: AbortSignal.timeout(30000),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              const text = data.content?.[0]?.text;
+              if (text && text.trim().length > 50) editorialMarkdown = text.trim();
+            }
           }
         }
-      } catch {}
+      } catch (e) {
+        console.warn('[Bookmarklet] AI structuring failed:', e);
+      }
     }
 
     // 5. Build ScrapedProblem
