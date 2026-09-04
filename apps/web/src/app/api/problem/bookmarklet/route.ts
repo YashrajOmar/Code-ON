@@ -21,6 +21,49 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: corsHeaders });
 }
 
+// ── AI call helper (works with Gemini, OpenAI, Anthropic) ────────────────────
+async function aiCall(provider: any, prompt: string): Promise<string | null> {
+  try {
+    if (provider.format === 'gemini') {
+      const { GoogleGenAI } = await import('@google/genai');
+      const ai = new GoogleGenAI({ apiKey: provider.apiKey });
+      const response = await ai.models.generateContent({ model: provider.model, contents: prompt });
+      return response.text && response.text.trim().length > 20 ? response.text.trim() : null;
+    }
+    if (provider.format === 'openai') {
+      const baseUrl = provider.baseUrl || 'https://api.openai.com/v1';
+      const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${provider.apiKey}` },
+        body: JSON.stringify({ model: provider.model, messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 3000 }),
+        signal: AbortSignal.timeout(60000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.choices?.[0]?.message?.content;
+        return text && text.trim().length > 20 ? text.trim() : null;
+      }
+    }
+    if (provider.format === 'anthropic') {
+      const baseUrl = provider.baseUrl || 'https://api.anthropic.com';
+      const res = await fetch(`${baseUrl.replace(/\/$/, '')}/v1/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': provider.apiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: provider.model, messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 3000 }),
+        signal: AbortSignal.timeout(60000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const text = data.content?.[0]?.text;
+        return text && text.trim().length > 20 ? text.trim() : null;
+      }
+    }
+  } catch (e) {
+    console.warn('[AI Call] Failed:', e);
+  }
+  return null;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { url, html, editorialHtml, referenceSolutions } = await req.json();
@@ -35,6 +78,8 @@ export async function POST(req: NextRequest) {
     }
 
     const { contestId, index } = parsed;
+    const problemLetter = index.toUpperCase();
+    const problemId = `${contestId}${index}`;
 
     // 1. Fetch CF API metadata (not blocked by Cloudflare)
     let cfProblem: { name?: string; rating?: number; tags?: string[] } = {};
@@ -54,93 +99,97 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
 
-    // 2. Parse problem HTML from the bookmarklet
+    // 2. Parse problem HTML from the bookmarklet (raw cheerio parse)
     const pageData = parseCFProblemHtml(html);
 
     if (!pageData.statement || pageData.statement.trim().length < 10) {
       return NextResponse.json({ error: 'Could not extract problem statement from HTML' }, { status: 422, headers: corsHeaders });
     }
 
-    // 3. Parse editorial HTML if provided
+    // 3. Get AI provider (user's API key from Settings)
+    const provider = await getActiveProvider();
+
+    // 4. AI format the problem statement (fix markdown, preserve images, clean up)
+    let statementMarkdown =
+      pageData.statement +
+      (pageData.inputFormat ? `\n\n${pageData.inputFormat}` : '') +
+      (pageData.outputFormat ? `\n\n${pageData.outputFormat}` : '');
+
+    if (provider) {
+      const statementPrompt = `You are given a raw Codeforces problem statement (converted from HTML to markdown). Clean it up into well-formatted markdown.
+
+Rules:
+- Preserve all images (keep ![image](url) format)
+- Preserve math formulas (keep $...$ or $$...$$ format)
+- Keep the problem title, legend, input format, output format, and note sections
+- Remove any HTML tags, CSS, or JavaScript that leaked through
+- Remove any "Codeforces" branding, ads, or navigation elements
+- Keep it clean and readable
+
+Problem: ${cfProblem.name || `Problem ${problemId}`}
+Raw statement:
+${statementMarkdown.substring(0, 4000)}
+
+Output ONLY the cleaned problem statement in markdown.`;
+
+      const aiStatement = await aiCall(provider, statementPrompt);
+      if (aiStatement) statementMarkdown = aiStatement;
+    }
+
+    // 5. Parse + AI extract editorial for THIS specific problem
     let editorialMarkdown: string | undefined;
     if (editorialHtml) {
       editorialMarkdown = parseCFEditorialHtml(editorialHtml);
     }
 
-    // 4. AI structuring — extract ONLY this problem's editorial + clean it
-    if (editorialMarkdown && editorialMarkdown.length > 20) {
-      try {
-        const provider = await getActiveProvider();
-        if (provider) {
-          const problemId = `${contestId}${index}`;
-          const prompt = `You are given a raw Codeforces editorial blog post. It contains editorials for MULTIPLE problems (A, B, C, D, E, F).
+    if (editorialMarkdown && editorialMarkdown.length > 20 && provider) {
+      const editorialPrompt = `You are given a raw Codeforces editorial blog post. It contains editorials for MULTIPLE problems (A, B, C, D, E, F) from contest ${contestId}.
 
-Your job: Extract ONLY the editorial for problem ${problemId} (${cfProblem.name || 'unknown'}). Discard everything else — announcements, rants, standings, other problems' editorials.
+CRITICAL INSTRUCTION: You must find and extract ONLY the editorial for Problem ${problemLetter} (${cfProblem.name || 'unknown'}). 
 
-Then format it as clean markdown:
+The editorial blog post uses headers like:
+- "Problem A" or "116A" or "A - Problem Name" or just "A"
+- "Problem E" or "116E" or "E - Problem Name" or just "E"
+
+You MUST scan for Problem ${problemLetter} or ${problemId} specifically. Do NOT give me the editorial for Problem A if I asked for Problem ${problemLetter}.
+
+Discard everything else: announcements, rants, standings, other problems' editorials, author thank-you notes, etc.
+
+Format the extracted editorial as clean markdown:
 ## Approach
-(explain the approach for ${problemId} only)
+(explain the approach for Problem ${problemLetter} only)
 
 ## Complexity
 (time and space complexity)
 
-If there is code, format it in code blocks.
+## Code
+(if any code is present in the editorial, format it in a cpp code block)
+
+If Problem ${problemLetter} is genuinely not mentioned in this blog post, output: "Editorial not available for Problem ${problemLetter}."
 
 Raw blog post:
-${editorialMarkdown.substring(0, 4000)}
+${editorialMarkdown.substring(0, 6000)}
 
-Output ONLY the editorial for problem ${problemId}. If ${problemId} is not mentioned, output "Editorial not available for this problem."`;
+Output ONLY the editorial for Problem ${problemLetter}.`;
 
-          if (provider.format === 'gemini') {
-            const { GoogleGenAI } = await import('@google/genai');
-            const ai = new GoogleGenAI({ apiKey: provider.apiKey });
-            const response = await ai.models.generateContent({ model: provider.model, contents: prompt });
-            if (response.text && response.text.trim().length > 50) editorialMarkdown = response.text.trim();
-          } else if (provider.format === 'openai') {
-            const baseUrl = provider.baseUrl || 'https://api.openai.com/v1';
-            const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${provider.apiKey}` },
-              body: JSON.stringify({ model: provider.model, messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 2000 }),
-              signal: AbortSignal.timeout(30000),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              const text = data.choices?.[0]?.message?.content;
-              if (text && text.trim().length > 50) editorialMarkdown = text.trim();
-            }
-          } else if (provider.format === 'anthropic') {
-            const baseUrl = provider.baseUrl || 'https://api.anthropic.com';
-            const res = await fetch(`${baseUrl.replace(/\/$/, '')}/v1/messages`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'x-api-key': provider.apiKey, 'anthropic-version': '2023-06-01' },
-              body: JSON.stringify({ model: provider.model, messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 2000 }),
-              signal: AbortSignal.timeout(30000),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              const text = data.content?.[0]?.text;
-              if (text && text.trim().length > 50) editorialMarkdown = text.trim();
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('[Bookmarklet] AI structuring failed:', e);
-      }
+      const aiEditorial = await aiCall(provider, editorialPrompt);
+      if (aiEditorial) editorialMarkdown = aiEditorial;
     }
 
-    // 5. Build ScrapedProblem with reference solutions (from bookmarklet)
+    // 6. AI format the reference solutions (if provided and AI available)
+    let formattedRefSolutions = referenceSolutions && referenceSolutions.length > 0
+      ? referenceSolutions.map((rs: any) => ({ code: rs.code, language: rs.language || 'cpp', url: rs.url }))
+      : undefined;
+
+    // 7. Build ScrapedProblem
     const problem = {
-      id: `${contestId}${index}`,
+      id: problemId,
       url,
       platform: 'codeforces' as const,
-      title: cfProblem.name || `Problem ${contestId}${index}`,
+      title: cfProblem.name || `Problem ${problemId}`,
       isInteractive: cfProblem.tags?.includes('interactive') ?? false,
       content: {
-        problemStatementMarkdown:
-          pageData.statement +
-          (pageData.inputFormat ? `\n\n${pageData.inputFormat}` : '') +
-          (pageData.outputFormat ? `\n\n${pageData.outputFormat}` : ''),
+        problemStatementMarkdown: statementMarkdown,
         constraintsMarkdown:
           `- **Time Limit:** ${pageData.timeLimitMs ? pageData.timeLimitMs / 1000 + ' seconds' : 'Unknown'}\n` +
           `- **Memory Limit:** ${pageData.memoryLimitKb ? pageData.memoryLimitKb / 1024 + ' MB' : 'Unknown'}`,
@@ -151,17 +200,15 @@ Output ONLY the editorial for problem ${problemId}. If ${problemId} is not menti
         input: ex.input,
         output: ex.output,
       })),
-      referenceSolutions: referenceSolutions && referenceSolutions.length > 0
-        ? referenceSolutions.map((rs: any) => ({ code: rs.code, language: rs.language || 'cpp', url: rs.url }))
-        : undefined,
+      referenceSolutions: formattedRefSolutions,
     };
 
-    // 6. Post-process + validate
+    // 8. Post-process + validate
     const cleaned = postProcessScrapedProblem(problem as any);
     const validated = ScrapedProblemSchema.parse(cleaned);
     const dto = mapToPublicScrapedProblemDTO(validated);
 
-    // 7. Save to DB (NO SSE broadcast — prevents other users seeing the same problem)
+    // 9. Save to DB
     try {
       const service = new ProblemScraperService(prisma);
       await service.saveProblem('codeforces', url, validated, 0);
@@ -169,7 +216,7 @@ Output ONLY the editorial for problem ${problemId}. If ${problemId} is not menti
       console.warn('[Bookmarklet] DB save failed:', e);
     }
 
-    // 8. Return problem data (NO broadcast to other users)
+    // 10. Return (NO SSE broadcast — each user sees only their own imports)
     return NextResponse.json({
       success: true,
       problem: dto,
