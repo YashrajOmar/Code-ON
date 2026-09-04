@@ -32,8 +32,8 @@ async function aiCall(provider: any, prompt: string): Promise<string | null> {
       const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${provider.apiKey}` },
-        body: JSON.stringify({ model: provider.model, messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 3000 }),
-        signal: AbortSignal.timeout(60000),
+        body: JSON.stringify({ model: provider.model, messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 4000 }),
+        signal: AbortSignal.timeout(90000),
       });
       if (res.ok) {
         const data = await res.json();
@@ -46,8 +46,8 @@ async function aiCall(provider: any, prompt: string): Promise<string | null> {
       const res = await fetch(`${baseUrl.replace(/\/$/, '')}/v1/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': provider.apiKey, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: provider.model, messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 3000 }),
-        signal: AbortSignal.timeout(60000),
+        body: JSON.stringify({ model: provider.model, messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 4000 }),
+        signal: AbortSignal.timeout(90000),
       });
       if (res.ok) {
         const data = await res.json();
@@ -61,7 +61,7 @@ async function aiCall(provider: any, prompt: string): Promise<string | null> {
   return null;
 }
 
-// Strip HTML to plain text without cheerio (cheerio not in apps/web dependencies)
+// Strip HTML to plain text (no cheerio dependency)
 function stripHtml(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, '')
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
     const problemLetter = index.toUpperCase();
     const problemId = `${contestId}${index}`;
 
-    // 1. Fetch CF API metadata (not blocked by Cloudflare)
+    // 1. Fetch CF API metadata
     let cfProblem: { name?: string; rating?: number; tags?: string[]; timeLimit?: number; memoryLimit?: number } = {};
     try {
       const apiUrl = `https://codeforces.com/api/problemset.problems?tags=`;
@@ -118,53 +118,55 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
 
-    // 2. The bookmarklet sends the .problem-statement div HTML.
-    // Save it DIRECTLY — do NOT convert to markdown (mangles LaTeX).
-    // The frontend's ProblemStatementView renders raw HTML via rehypeRaw + remarkMath + rehypeKatex.
-    const statementHtml = html;
+    // 2. Get AI provider (user's API key from Settings)
+    const provider = await getActiveProvider();
 
-    if (!statementHtml || statementHtml.trim().length < 20) {
-      return NextResponse.json({ error: 'Could not extract problem statement from HTML' }, { status: 422, headers: corsHeaders });
-    }
-
-    // 3. Extract examples from the HTML (simple regex, no cheerio needed)
+    // 3. Extract examples with regex (no cheerio)
     const examples: Array<{ input: string; output: string }> = [];
-    // CF examples are in .input pre and .output pre
-    const inputMatches = statementHtml.match(/class="input"[^>]*>[\s\S]*?<pre[^>]*>([\s\S]*?)<\/pre>/gi) || [];
-    const outputMatches = statementHtml.match(/class="output"[^>]*>[\s\S]*?<pre[^>]*>([\s\S]*?)<\/pre>/gi) || [];
-
+    const inputMatches = html.match(/class="input"[^>]*>[\s\S]*?<pre[^>]*>([\s\S]*?)<\/pre>/gi) || [];
+    const outputMatches = html.match(/class="output"[^>]*>[\s\S]*?<pre[^>]*>([\s\S]*?)<\/pre>/gi) || [];
     for (let i = 0; i < Math.min(inputMatches.length, outputMatches.length); i++) {
       const inputHtml = inputMatches[i].match(/<pre[^>]*>([\s\S]*?)<\/pre>/i)?.[1] || '';
       const outputHtml = outputMatches[i].match(/<pre[^>]*>([\s\S]*?)<\/pre>/i)?.[1] || '';
       const cleanInput = inputHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<\/?[^>]+(>|$)/g, '').replace(/</g, '<').replace(/>/g, '>').replace(/&/g, '&').replace(/\n{2,}/g, '\n').trim();
       const cleanOutput = outputHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<\/?[^>]+(>|$)/g, '').replace(/</g, '<').replace(/>/g, '>').replace(/&/g, '&').replace(/\n{2,}/g, '\n').trim();
-      if (cleanInput || cleanOutput) {
-        examples.push({ input: cleanInput, output: cleanOutput });
-      }
+      if (cleanInput || cleanOutput) examples.push({ input: cleanInput, output: cleanOutput });
     }
 
-    // 4. AI extract editorial for the SPECIFIC problem (with reference code)
-    let editorialMarkdown: string | undefined;
+    // 4. RUN BOTH AI CALLS IN PARALLEL (prevents Vercel timeout)
+    const refCode = referenceSolutions && referenceSolutions.length > 0
+      ? referenceSolutions[0].code.substring(0, 1500)
+      : '';
 
-    if (editorialHtml) {
-      const provider = await getActiveProvider();
-      if (provider) {
-        // Strip HTML to plain text (no cheerio needed)
-        const plainText = stripHtml(editorialHtml).substring(0, 8000);
+    // AI Task 1: Format problem statement (convert MathJax HTML to clean markdown with LaTeX)
+    const statementPrompt = `Convert this Codeforces problem statement HTML into clean, well-formatted markdown.
 
-        const refCode = referenceSolutions && referenceSolutions.length > 0
-          ? referenceSolutions[0].code.substring(0, 1500)
-          : '';
+Rules:
+- Convert MathJax spans (<span class="MathJax">, <script type="math/tex">) to proper LaTeX: $...$ for inline, $$...$$ for display
+- Preserve images as ![image](url)
+- Keep sections: problem title, legend, input format, output format, note
+- Remove all HTML tags, CSS classes, JavaScript
+- Keep it clean and readable
 
-        const editorialPrompt = `You are given a Codeforces editorial blog post for contest ${contestId}. It contains editorials for MULTIPLE problems (A, B, C, D, E, F).
+Problem: ${cfProblem.name || `Problem ${problemId}`}
+Raw HTML:
+${html.substring(0, 5000)}
 
-CRITICAL INSTRUCTION: Extract ONLY the editorial for Problem ${problemLetter} (${cfProblem.name || 'unknown'}).
+Output ONLY the formatted problem statement in markdown with LaTeX.`;
 
-The blog post uses headers or links like:
-- "Problem A" or "116A" or "A - Tram" or a link to /contest/116/problem/A
-- "Problem E" or "116E" or "E - Tram" or a link to /contest/116/problem/E
+    // AI Task 2: Extract + format editorial for the SPECIFIC problem
+    const editorialPlainText = editorialHtml ? stripHtml(editorialHtml).substring(0, 8000) : '';
+    const editorialPrompt = `You are given a Codeforces editorial blog post for contest ${contestId}. It contains editorials for MULTIPLE problems (A, B, C, D, E, F).
 
-You MUST find the section for Problem ${problemLetter}. Do NOT give me Problem A if I asked for Problem ${problemLetter}.
+CRITICAL: Extract ONLY the editorial for Problem ${problemLetter} (${cfProblem.name || 'unknown'}).
+
+The blog post has sections like:
+- "Problem A" or "116A" or "A - Tram" or link to /contest/116/problem/A
+- "Problem E" or "116E" or "E - Tram" or link to /contest/116/problem/E
+
+You MUST find Problem ${problemLetter}. Do NOT give me Problem A if I asked for Problem ${problemLetter}.
+
+Convert any MathJax/LaTeX in the editorial to proper $...$ or $$...$$ markdown.
 
 Format as clean markdown:
 ## Approach
@@ -176,17 +178,30 @@ Format as clean markdown:
 ## Reference Solution
 ${refCode ? '```cpp\n' + refCode + '\n```' : '(no reference solution was provided)'}
 
-Plain text of the editorial blog post:
-${plainText}
+Plain text of editorial blog post:
+${editorialPlainText}
 
-Output ONLY the editorial for Problem ${problemLetter}. If Problem ${problemLetter} is genuinely not mentioned, output: "Editorial not available for Problem ${problemLetter}."`;
+Output ONLY the editorial for Problem ${problemLetter}. If ${problemLetter} is not mentioned, output: "Editorial not available for Problem ${problemLetter}."`;
 
-        const aiEditorial = await aiCall(provider, editorialPrompt);
-        if (aiEditorial) editorialMarkdown = aiEditorial;
+    // Run both AI calls in parallel
+    let statementMarkdown = html; // fallback: raw HTML
+    let editorialMarkdown: string | undefined;
+
+    if (provider) {
+      const [statementResult, editorialResult] = await Promise.allSettled([
+        aiCall(provider, statementPrompt),
+        editorialHtml ? aiCall(provider, editorialPrompt) : Promise.resolve(null),
+      ]);
+
+      if (statementResult.status === 'fulfilled' && statementResult.value) {
+        statementMarkdown = statementResult.value;
+      }
+      if (editorialResult.status === 'fulfilled' && editorialResult.value) {
+        editorialMarkdown = editorialResult.value;
       }
     }
 
-    // 5. Build ScrapedProblem — RAW HTML for statement
+    // 5. Build ScrapedProblem
     const problem = {
       id: problemId,
       url,
@@ -194,7 +209,7 @@ Output ONLY the editorial for Problem ${problemLetter}. If Problem ${problemLett
       title: cfProblem.name || `Problem ${problemId}`,
       isInteractive: cfProblem.tags?.includes('interactive') ?? false,
       content: {
-        problemStatementMarkdown: statementHtml,
+        problemStatementMarkdown: statementMarkdown,
         constraintsMarkdown:
           `- **Time Limit:** ${cfProblem.timeLimit ? cfProblem.timeLimit + ' seconds' : 'Unknown'}\n` +
           `- **Memory Limit:** ${cfProblem.memoryLimit ? cfProblem.memoryLimit + ' MB' : 'Unknown'}`,
