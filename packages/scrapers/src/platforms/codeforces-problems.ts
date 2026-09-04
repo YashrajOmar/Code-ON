@@ -77,6 +77,7 @@ function sleep(ms: number): Promise<void> {
 
 export interface CFProblemParseResult {
   statement: string;
+  rawStatementHtml: string;
   inputFormat: string | null;
   outputFormat: string | null;
   timeLimitMs: number | null;
@@ -86,7 +87,7 @@ export interface CFProblemParseResult {
 }
 
 export const EMPTY_CF_PROBLEM_RESULT: CFProblemParseResult = {
-  statement: '', inputFormat: null, outputFormat: null,
+  statement: '', rawStatementHtml: '', inputFormat: null, outputFormat: null,
   timeLimitMs: null, memoryLimitKb: null, examples: [], tutorialUrl: null,
 };
 
@@ -143,6 +144,9 @@ export function parseCFProblemHtml(html: string): CFProblemParseResult {
     finalStatementHtml = statementDiv.find('> div:nth-child(2)').html() || '';
   }
 
+  // Also get the raw HTML of the entire problem-statement div (for frontend rendering)
+  const rawStatementHtml = statementDiv.html() || '';
+
   let finalStatement = htmlToMarkdown(finalStatementHtml);
   if (noteHtml) {
     finalStatement += '\n\n' + htmlToMarkdown(noteHtml);
@@ -160,6 +164,7 @@ export function parseCFProblemHtml(html: string): CFProblemParseResult {
 
   return {
     statement: finalStatement,
+    rawStatementHtml,
     inputFormat: inputFormatHtml ? htmlToMarkdown(inputFormatHtml) : null,
     outputFormat: outputFormatHtml ? htmlToMarkdown(outputFormatHtml) : null,
     timeLimitMs,

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
+  parseCFProblemHtml,
+  parseCFEditorialHtml,
   extractCFProblemId,
   postProcessScrapedProblem,
   mapToPublicScrapedProblemDTO,
@@ -19,7 +21,6 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: corsHeaders });
 }
 
-// ── AI call helper ────────────────────────────────────────────────────────────
 async function aiCall(provider: any, prompt: string): Promise<string | null> {
   try {
     if (provider.format === 'gemini') {
@@ -79,7 +80,7 @@ export async function POST(req: NextRequest) {
     const problemLetter = index.toUpperCase();
     const problemId = `${contestId}${index}`;
 
-    // 1. Fetch CF API metadata (not blocked by Cloudflare)
+    // 1. Fetch CF API metadata
     let cfProblem: { name?: string; rating?: number; tags?: string[] } = {};
     try {
       const apiUrl = `https://codeforces.com/api/problemset.problems?tags=`;
@@ -97,107 +98,58 @@ export async function POST(req: NextRequest) {
       }
     } catch {}
 
-    // 2. Extract raw HTML directly from the problem-statement div
-    // Do NOT convert to markdown — the frontend's ProblemStatementView uses
-    // rehypeRaw + remarkMath + rehypeKatex which handles raw HTML + LaTeX
-    let statementHtml = '';
-    let timeLimitMs: number | null = null;
-    let memoryLimitKb: number | null = null;
-    const examples: Array<{ input: string; output: string }> = [];
+    // 2. Parse problem HTML using @codeon/scrapers (cheerio is in that package)
+    const pageData = parseCFProblemHtml(html);
 
-    try {
-      const cheerio = await import('cheerio');
-      const $ = cheerio.load(html);
-      const statementDiv = $('.problem-statement');
-
-      if (statementDiv.length) {
-        // Extract time/memory limits
-        const timeLimitStr = statementDiv.find('.time-limit').text();
-        timeLimitMs = timeLimitStr ? Math.round(parseFloat(timeLimitStr.match(/([\d.]+)/)?.[1] || '0') * 1000) : null;
-        const memoryLimitStr = statementDiv.find('.memory-limit').text();
-        memoryLimitKb = memoryLimitStr ? parseInt(memoryLimitStr.match(/(\d+)/)?.[1] || '0', 10) * 1024 : null;
-
-        // Extract examples
-        statementDiv.find('.sample-test .input').each((i, el) => {
-          const inputHtml = $(el).find('pre').html() || '';
-          const outputEl = statementDiv.find('.sample-test .output').eq(i);
-          const outputHtml = outputEl.find('pre').html() || '';
-          const cleanInput = inputHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<\/div>/gi, '\n').replace(/<[^>]+>/g, '').replace(/\n{2,}/g, '\n').trim();
-          const cleanOutput = outputHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<\/div>/gi, '\n').replace(/<[^>]+>/g, '').replace(/\n{2,}/g, '\n').trim();
-          examples.push({ input: cleanInput, output: cleanOutput });
-        });
-
-        // Get raw HTML of the entire problem-statement div
-        // This preserves LaTeX math ($...$, $$...$$), images (<img>), tables, etc.
-        statementHtml = statementDiv.html() || '';
-      }
-    } catch (e) {
-      console.warn('[Bookmarklet] cheerio parse failed:', e);
-    }
-
-    if (!statementHtml || statementHtml.trim().length < 20) {
+    if (!pageData.statement || pageData.statement.trim().length < 10) {
       return NextResponse.json({ error: 'Could not extract problem statement from HTML' }, { status: 422, headers: corsHeaders });
     }
 
-    // 3. Parse editorial HTML — use cheerio to extract div.ttypography content
-    let editorialRawHtml = '';
+    // Use raw HTML for the problem statement — frontend renders it with rehypeRaw + remarkMath
+    const statementContent = pageData.rawStatementHtml || pageData.statement;
+
+    // 3. Parse editorial + AI extract correct problem section
+    let editorialMarkdown: string | undefined;
     if (editorialHtml) {
-      try {
-        const cheerio = await import('cheerio');
-        const $ = cheerio.load(editorialHtml);
-        const typo = $('div.ttypography').first();
-        if (typo.length) {
-          editorialRawHtml = typo.html() || '';
-        }
-      } catch (e) {
-        console.warn('[Bookmarklet] editorial parse failed:', e);
-      }
+      editorialMarkdown = parseCFEditorialHtml(editorialHtml);
     }
 
-    // 4. AI extract ONLY this problem's editorial from the full blog post
-    let editorialMarkdown: string | undefined;
-    if (editorialRawHtml && editorialRawHtml.length > 20) {
+    // 4. AI extract ONLY this problem's editorial
+    if (editorialMarkdown && editorialMarkdown.length > 20) {
       const provider = await getActiveProvider();
       if (provider) {
-        // Strip HTML to plain text for the AI (smaller payload, faster)
-        const cheerio = await import('cheerio');
-        const $ = cheerio.load(editorialRawHtml);
-        const plainText = $.text().substring(0, 6000);
+        const refCode = referenceSolutions && referenceSolutions.length > 0
+          ? referenceSolutions[0].code.substring(0, 1500)
+          : '';
 
-        const editorialPrompt = `You are given a Codeforces editorial blog post. It contains editorials for MULTIPLE problems from contest ${contestId}.
+        const editorialPrompt = `You are given a Codeforces editorial blog post for contest ${contestId}. It contains editorials for MULTIPLE problems.
 
-CRITICAL: Extract ONLY the editorial for Problem ${problemLetter} (${cfProblem.name || 'unknown'}). 
+CRITICAL: Extract ONLY the editorial for Problem ${problemLetter} (${cfProblem.name || 'unknown'}).
 
-The blog post has sections like:
-- "Problem A" or "116A" or "A - Tram"
-- "Problem E" or "116E" or "E - Problem Name"
-
+The blog post has sections like "Problem A", "116A", "A - Tram", "Problem E", "116E", etc.
 You MUST find Problem ${problemLetter}. Do NOT give me Problem A if I asked for Problem ${problemLetter}.
 
-Also, the user has provided ${referenceSolutions?.length || 0} accepted C++ solutions below. If the editorial mentions code but doesn't include it, reference these solutions.
-
-Format as markdown:
+Format as clean markdown:
 ## Approach
 (explain the approach for Problem ${problemLetter} only)
 
 ## Complexity
 (time and space complexity)
 
-## Reference Code
-${referenceSolutions && referenceSolutions.length > 0 ? '```cpp\n' + referenceSolutions[0].code.substring(0, 1500) + '\n```' : '(no reference solution provided)'}
+## Code
+${refCode ? '```cpp\n' + refCode + '\n```' : '(no reference code available)'}
 
-Plain text of the editorial blog post:
-${plainText}
+Plain text editorial:
+${editorialMarkdown.substring(0, 6000)}
 
-Output ONLY the editorial for Problem ${problemLetter}. If ${problemLetter} is not mentioned, output: "Editorial not available for Problem ${problemLetter}."`;
+Output ONLY the editorial for Problem ${problemLetter}.`;
 
         const aiEditorial = await aiCall(provider, editorialPrompt);
         if (aiEditorial) editorialMarkdown = aiEditorial;
       }
     }
 
-    // 5. Build ScrapedProblem — send RAW HTML for statement (not markdown)
-    // The frontend's ProblemStatementView handles raw HTML + LaTeX via rehypeRaw
+    // 5. Build ScrapedProblem
     const problem = {
       id: problemId,
       url,
@@ -205,14 +157,13 @@ Output ONLY the editorial for Problem ${problemLetter}. If ${problemLetter} is n
       title: cfProblem.name || `Problem ${problemId}`,
       isInteractive: cfProblem.tags?.includes('interactive') ?? false,
       content: {
-        // Raw HTML — frontend renders it with rehypeRaw + remarkMath + rehypeKatex
-        problemStatementMarkdown: statementHtml,
+        problemStatementMarkdown: statementContent,
         constraintsMarkdown:
-          `- **Time Limit:** ${timeLimitMs ? timeLimitMs / 1000 + ' seconds' : 'Unknown'}\n` +
-          `- **Memory Limit:** ${memoryLimitKb ? memoryLimitKb / 1024 + ' MB' : 'Unknown'}`,
+          `- **Time Limit:** ${pageData.timeLimitMs ? pageData.timeLimitMs / 1000 + ' seconds' : 'Unknown'}\n` +
+          `- **Memory Limit:** ${pageData.memoryLimitKb ? pageData.memoryLimitKb / 1024 + ' MB' : 'Unknown'}`,
         editorialMarkdown,
       },
-      examples: examples.map((ex, i) => ({
+      examples: pageData.examples.map((ex, i) => ({
         testId: i + 1,
         input: ex.input,
         output: ex.output,
