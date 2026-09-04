@@ -324,8 +324,12 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
                 }
               } else if (eventName === "blocked") {
                 setBlockedUrl(url.trim());
-                setScrapeError(data.message || "Codeforces blocked. Open the URL in your browser and paste the page source below.");
-                setShowManualPaste(true);
+                setScrapeProgress("Codeforces blocked. Trying Companion app...");
+                const companionOk = await tryCompanionScrape(url.trim());
+                if (!companionOk) {
+                  setScrapeError(data.message || "Codeforces blocked. Use the bookmarklet or paste the problem manually.");
+                  setShowManualPaste(true);
+                }
               } else if (eventName === "error") {
                 if (url.includes('codeforces.com')) {
                   setBlockedUrl(url.trim());
@@ -421,23 +425,31 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
               <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 Step 1: Drag this to your bookmarks bar
               </div>
-              <a
-                href={BOOKMARKLET_CODE}
-                onClick={(e) => e.preventDefault()}
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  navigator.clipboard.writeText(BOOKMARKLET_CODE).then(() => {
+                    alert("Bookmarklet code copied! Create a new bookmark, paste this as the URL, and click it on any Codeforces problem page.");
+                  }).catch(() => {
+                    window.open(BOOKMARKLET_CODE, "_blank");
+                  });
+                }}
                 style={{
                   display: "inline-block", padding: "6px 14px", borderRadius: 6,
                   background: "linear-gradient(135deg, #7c3aed, #4f46e5)", color: "white",
-                  fontSize: 12, fontWeight: 700, textDecoration: "none", cursor: "grab",
+                  fontSize: 12, fontWeight: 700, textDecoration: "none", cursor: "pointer",
                   boxShadow: "0 2px 8px rgba(124,58,237,0.3)",
+                  border: "none", fontFamily: "inherit",
                 }}
               >
-                📥 Import to CodeOn
-              </a>
-              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>
-                Step 2: Open any Codeforces problem page in your browser<br/>
-                Step 3: Click the "Import to CodeOn" bookmark — problem + editorial are sent automatically<br/>
-                Step 4: The problem appears here instantly ✨
-              </div>
+                📥 Copy Bookmarklet
+              </button>
+            <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>
+              Step 2: Create a new bookmark in your browser, paste the copied code as the URL<br/>
+              Step 3: Open any Codeforces problem page in your browser<br/>
+              Step 4: Click the "Import to CodeOn" bookmark — problem + editorial are sent automatically<br/>
+              Step 5: The problem appears here instantly ✨
+            </div>
             </div>
 
             {/* Manual paste fallback */}
