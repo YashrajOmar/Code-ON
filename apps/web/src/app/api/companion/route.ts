@@ -6,6 +6,7 @@ import {
   PublicScrapedProblemDTO,
 } from '@codeon/scrapers';
 import { prisma } from '@/lib/prisma';
+import { addSubscriber, removeSubscriber, broadcastProblem } from '@/lib/sse-broadcast';
 
 // CORS response helper
 const corsHeaders = {
@@ -21,9 +22,7 @@ export async function OPTIONS() {
   });
 }
 
-// In-memory SSE broadcast subscribers
 type Subscriber = (data: PublicScrapedProblemDTO) => void;
-const subscribers = new Set<Subscriber>();
 
 export async function POST(req: NextRequest) {
   try {
@@ -50,13 +49,7 @@ export async function POST(req: NextRequest) {
     const publicDto = mapToPublicScrapedProblemDTO(scrapedProblem);
 
     // 3. Broadcast to all active browser SSE listeners
-    for (const listener of Array.from(subscribers)) {
-      try {
-        listener(publicDto);
-      } catch (err) {
-        console.warn('[Companion API] Broadcast error for subscriber:', err);
-      }
-    }
+    broadcastProblem(publicDto);
 
     return NextResponse.json(
       {
@@ -96,7 +89,7 @@ export async function GET(req: NextRequest) {
         }
       };
 
-      subscribers.add(onNewProblem);
+      addSubscriber(onNewProblem);
 
       // 3. Keep-alive heartbeat every 15s to prevent socket timeouts
       const heartbeatTimer = setInterval(() => {
@@ -108,7 +101,7 @@ export async function GET(req: NextRequest) {
       }, 15000);
 
       cleanup = () => {
-        subscribers.delete(onNewProblem);
+        removeSubscriber(onNewProblem);
         clearInterval(heartbeatTimer);
       };
 
