@@ -149,13 +149,13 @@ Rules:
 - Keep it clean and readable
 
 Problem: ${cfProblem.name || `Problem ${problemId}`}
-Raw HTML:
-${html.substring(0, 5000)}
+Raw HTML (truncated):
+${html.substring(0, 3000)}
 
 Output ONLY the formatted problem statement in markdown with LaTeX.`;
 
     // AI Task 2: Extract + format editorial for the SPECIFIC problem
-    const editorialPlainText = editorialHtml ? stripHtml(editorialHtml).substring(0, 8000) : '';
+    const editorialPlainText = editorialHtml ? stripHtml(editorialHtml).substring(0, 4000) : '';
     const editorialPrompt = `You are given a Codeforces editorial blog post for contest ${contestId}. It contains editorials for MULTIPLE problems (A, B, C, D, E, F).
 
 CRITICAL: Extract ONLY the editorial for Problem ${problemLetter} (${cfProblem.name || 'unknown'}).
