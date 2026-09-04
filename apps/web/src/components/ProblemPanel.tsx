@@ -217,6 +217,10 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
     setIsScraping(true);
     setScrapeError(null);
     setScrapeProgress("Initializing scraper...");
+    // Clear old problem so user doesn't see stale data
+    if (problem) {
+      setInternalProblem(null);
+    }
 
     try {
       const res = await fetch("/api/problem/scrape", {
