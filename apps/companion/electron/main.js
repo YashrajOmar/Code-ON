@@ -7,6 +7,8 @@ let mainWindow;
 let tray = null;
 let autoSyncTimer = null;
 const SYNC_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
+const COMPANION_PORT = 17890;
+let httpServer = null;
 
 function createWindow() {
   const shouldHide = process.argv.includes("--hidden");
@@ -70,6 +72,9 @@ app.whenReady().then(() => {
 
   // Start auto-sync timer
   startAutoSync();
+
+  // Start local HTTP server for web app scrape fallback
+  startHttpServer();
 
   // Auto-launch on Windows startup
   app.setLoginItemSettings({
@@ -428,6 +433,175 @@ async function getBrowser(visible, { reuseAny = false } = {}) {
 
   browserContextHeadless = wantHeadless;
   return browserContext;
+}
+
+// ── Local HTTP server (for web app fallback scraping) ────────────────────────
+// The web app (on Vercel) can't bypass Cloudflare. When CF scraping fails,
+// the frontend calls this local server, which uses the companion's real Chrome
+// browser to scrape the page and return the HTML.
+// Listens on 127.0.0.1 only (not exposed to the network).
+
+function parseRequestBody(req) {
+  return new Promise((resolve) => {
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; if (body.length > 5_000_000) req.destroy(); });
+    req.on("end", () => {
+      try { resolve(JSON.parse(body)); } catch { resolve({}); }
+    });
+    req.on("error", () => resolve({}));
+  });
+}
+
+function sendJson(res, status, data) {
+  res.writeHead(status, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(data));
+}
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+function startHttpServer() {
+  const http = require("http");
+
+  httpServer = http.createServer(async (req, res) => {
+    // CORS preflight + headers for all responses
+    for (const [k, v] of Object.entries(CORS_HEADERS)) res.setHeader(k, v);
+    if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
+
+    // GET /health — lets the web app detect if the companion is running
+    if (req.method === "GET" && req.url === "/health") {
+      sendJson(res, 200, { status: "ok" });
+      return;
+    }
+
+    // POST /scrape — generic: open any URL in Chrome, return page HTML
+    if (req.method === "POST" && req.url === "/scrape") {
+      try {
+        const { url } = await parseRequestBody(req);
+        if (!url || typeof url !== "string") {
+          sendJson(res, 400, { error: "url is required" });
+          return;
+        }
+
+        await awaitBrowserReady();
+        const browser = await getBrowser(false, { reuseAny: true });
+        const page = await browser.newPage();
+        try {
+          await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
+
+          // Wait for content (CF pages may need a moment for CF challenge to resolve)
+          const contentSelector = [".problem-statement", "div.ttypography", "article", "body"].join(", ");
+          await page.waitForSelector(contentSelector, { timeout: 10000 }).catch(() => {});
+
+          const html = await page.content();
+          await page.close();
+
+          if (html.includes("Just a moment") || html.includes("cf-challenge")) {
+            sendJson(res, 502, { error: "Cloudflare challenge not resolved" });
+          } else {
+            sendJson(res, 200, { html });
+          }
+        } catch (e) {
+          try { await page.close(); } catch {}
+          sendJson(res, 500, { error: e.message });
+        }
+      } catch (e) {
+        sendJson(res, 500, { error: e.message });
+      }
+      return;
+    }
+
+    // POST /scrape-cf-problem — CF-specific: scrape problem + editorial in one shot
+    if (req.method === "POST" && req.url === "/scrape-cf-problem") {
+      try {
+        const { url } = await parseRequestBody(req);
+        if (!url || !url.includes("codeforces.com")) {
+          sendJson(res, 400, { error: "Valid Codeforces URL is required" });
+          return;
+        }
+
+        await awaitBrowserReady();
+        const browser = await getBrowser(false, { reuseAny: true });
+        const page = await browser.newPage();
+        try {
+          // Step 1: Scrape the problem page
+          await page.goto(url, { waitUntil: "domcontentloaded", timeout: 20000 });
+          await page.waitForSelector(".problem-statement", { timeout: 10000 }).catch(() => {});
+          const problemHtml = await page.content();
+
+          if (problemHtml.includes("Just a moment") || !problemHtml.includes("problem-statement")) {
+            await page.close();
+            sendJson(res, 502, { error: "Cloudflare blocked the problem page" });
+            return;
+          }
+
+          // Step 2: Find tutorial/editorial link from the sidebar
+          let tutorialUrl = await page.evaluate(() => {
+            const links = document.querySelectorAll(".sidebar a, .links a");
+            for (const link of links) {
+              const text = (link.textContent || "").toLowerCase();
+              if (text.includes("tutorial") || text.includes("editorial") || text.includes("разбор")) {
+                return link.href;
+              }
+            }
+            return null;
+          });
+
+          let editorialHtml = null;
+
+          // Step 3: If no tutorial link on problem page, try the contest page
+          if (!tutorialUrl) {
+            const contestMatch = url.match(/codeforces\.com\/(?:problemset\/problem|contest)\/(\d+)/);
+            const contestId = contestMatch ? contestMatch[1] : null;
+            if (contestId) {
+              await page.goto(`https://codeforces.com/contest/${contestId}`, { waitUntil: "domcontentloaded", timeout: 20000 });
+              tutorialUrl = await page.evaluate(() => {
+                const links = document.querySelectorAll("a");
+                for (const link of links) {
+                  const text = (link.textContent || "").toLowerCase();
+                  if ((text.includes("tutorial") || text.includes("editorial")) && link.href.includes("/blog/entry/")) {
+                    return link.href;
+                  }
+                }
+                return null;
+              });
+            }
+          }
+
+          // Step 4: Scrape the editorial page if we found a tutorial link
+          if (tutorialUrl) {
+            await page.goto(tutorialUrl, { waitUntil: "domcontentloaded", timeout: 20000 });
+            await page.waitForSelector("div.ttypography", { timeout: 10000 }).catch(() => {});
+            editorialHtml = await page.content();
+          }
+
+          await page.close();
+
+          sendJson(res, 200, { problemHtml, editorialHtml, tutorialUrl });
+        } catch (e) {
+          try { await page.close(); } catch {}
+          sendJson(res, 500, { error: e.message });
+        }
+      } catch (e) {
+        sendJson(res, 500, { error: e.message });
+      }
+      return;
+    }
+
+    // 404
+    sendJson(res, 404, { error: "Not found" });
+  });
+
+  httpServer.listen(COMPANION_PORT, "127.0.0.1", () => {
+    console.log(`[HTTP] Companion scrape server listening on http://127.0.0.1:${COMPANION_PORT}`);
+  });
+
+  httpServer.on("error", (e) => {
+    console.log(`[HTTP] Server error: ${e.message}`);
+  });
 }
 
 // ── Handle Validation ──────────────────────────────────────────────────────

@@ -58,13 +58,34 @@ export async function POST(req: NextRequest) {
           });
 
           if (!scrapeResult.success) {
-            const errorMsg = 'error' in scrapeResult ? scrapeResult.error : `Failed: ${(scrapeResult as any).reason}`;
-            sendEvent('error', { message: errorMsg || 'Could not scrape problem from the provided URL.' });
+            // Distinguish BLOCKED (Cloudflare) from generic errors so the
+            // frontend can try the Companion app or show manual paste.
+            if (scrapeResult.reason === 'BLOCKED') {
+              sendEvent('blocked', {
+                message: 'Codeforces is blocking automated access (Cloudflare 403). Try the Companion app or paste the problem manually.',
+                url: (scrapeResult as any).url,
+                requiresManualPaste: true,
+              });
+            } else {
+              const errorMsg = 'error' in scrapeResult ? scrapeResult.error : `Failed: ${(scrapeResult as any).reason}`;
+              sendEvent('error', { message: errorMsg || 'Could not scrape problem from the provided URL.' });
+            }
             controller.close();
             return;
           }
 
           const problem = scrapeResult.problem;
+
+          // ── Detect Cloudflare block: success but empty statement ──────────
+          if (!problem.content?.problemStatementMarkdown || problem.content.problemStatementMarkdown.trim().length < 20) {
+            sendEvent('blocked', {
+              message: 'Codeforces is blocking automated access (Cloudflare). Open the problem in your browser, copy the page source, and paste it below.',
+              url: url.trim(),
+              requiresManualPaste: true,
+            });
+            controller.close();
+            return;
+          }
 
           // ── AI Structuring: Use the user's AI provider to clean up editorial ──
           if (problem.content?.editorialMarkdown && problem.content.editorialMarkdown.length > 20) {

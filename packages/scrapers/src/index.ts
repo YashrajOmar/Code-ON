@@ -26,6 +26,13 @@ export { CodeforcesSubmissionScraper } from './platforms/codeforces-submissions'
 export { LeetCodeSubmissionScraper } from './platforms/leetcode-submissions';
 export { LeetCodeProblemScraper } from './platforms/leetcode-problems';
 export { CodeforcesProblemScraper } from './platforms/codeforces-problems';
+export {
+  parseCFProblemHtml,
+  parseCFEditorialHtml,
+  extractCFProblemId,
+  extractProblemSection,
+} from './platforms/codeforces-problems';
+export type { CFProblemParseResult } from './platforms/codeforces-problems';
 export { GenericProblemScraper } from './platforms/generic-problems';
 
 // Registry v2 — typed failure states + cache port

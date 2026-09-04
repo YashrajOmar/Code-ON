@@ -32,7 +32,7 @@ interface CFProblemId {
  *   https://codeforces.com/contest/1/problem/A
  *   https://codeforces.com/gym/100001/problem/A
  */
-function extractCFProblemId(url: string): CFProblemId | null {
+export function extractCFProblemId(url: string): CFProblemId | null {
   const patterns = [
     /codeforces\.com\/problemset\/problem\/(\d+)\/([A-Za-z]\d?)/i,
     /codeforces\.com\/contest\/(\d+)\/problem\/([A-Za-z]\d?)/i,
@@ -73,60 +73,38 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function fetchCFProblemStatement(
-  contestId: string,
-  index: string
-): Promise<{ statement: string; inputFormat: string | null; outputFormat: string | null; timeLimitMs: number | null; memoryLimitKb: number | null; examples: Array<{ input: string; output: string }>; tutorialUrl: string | null }> {
-  const pageUrl = `https://codeforces.com/problemset/problem/${contestId}/${index}`;
-  const browserHeaders = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Connection': 'keep-alive',
-    'Upgrade-Insecure-Requests': '1',
-  };
+// ── Exported pure parsing functions (for companion/parse endpoint reuse) ──────
 
-  const response = await fetch(pageUrl, { headers: browserHeaders });
+export interface CFProblemParseResult {
+  statement: string;
+  inputFormat: string | null;
+  outputFormat: string | null;
+  timeLimitMs: number | null;
+  memoryLimitKb: number | null;
+  examples: Array<{ input: string; output: string }>;
+  tutorialUrl: string | null;
+}
 
-  let html = '';
+export const EMPTY_CF_PROBLEM_RESULT: CFProblemParseResult = {
+  statement: '', inputFormat: null, outputFormat: null,
+  timeLimitMs: null, memoryLimitKb: null, examples: [], tutorialUrl: null,
+};
 
-  if (response.ok) {
-    html = await response.text();
-  }
-
-  // Check if Cloudflare is blocking us (empty HTML, challenge page, or 403)
-  if (!html || html.includes('Just a moment') || html.includes('browser is being checked') || html.includes('cf-challenge') || html.includes('Please wait') || !html.includes('problem-statement')) {
-    // Try Jina AI reader proxy (bypasses Cloudflare) — request raw HTML so cheerio can parse it
-    try {
-      const jinaRes = await fetch(`https://r.jina.ai/${pageUrl}?locale=en`, {
-        headers: { 'Accept': 'text/html', 'x-respond-with': 'html' },
-        signal: AbortSignal.timeout(15000),
-      });
-      if (jinaRes.ok) {
-        const jinaHtml = await jinaRes.text();
-        if (jinaHtml && jinaHtml.includes('problem-statement')) {
-          html = jinaHtml;
-        }
-      }
-    } catch {}
-
-    // If Jina didn't return usable HTML, try Playwright
-    if (!html || !html.includes('problem-statement')) {
-      try {
-        const { renderPage } = await import('../renderer');
-        html = await renderPage(pageUrl);
-      } catch {
-        return { statement: '', inputFormat: null, outputFormat: null, timeLimitMs: null, memoryLimitKb: null, examples: [], tutorialUrl: null };
-      }
-    }
+/**
+ * Parse a Codeforces problem page HTML into structured data.
+ * Pure function — no network calls. Used by both the scraper and the
+ * /api/problem/parse endpoint (for companion-app-scraped HTML).
+ */
+export function parseCFProblemHtml(html: string): CFProblemParseResult {
+  if (!html || !html.includes('problem-statement')) {
+    return { ...EMPTY_CF_PROBLEM_RESULT };
   }
 
   const $ = cheerio.load(html);
 
   const statementDiv = $('.problem-statement');
   if (!statementDiv.length) {
-    return { statement: '', inputFormat: null, outputFormat: null, timeLimitMs: null, memoryLimitKb: null, examples: [], tutorialUrl: null };
+    return { ...EMPTY_CF_PROBLEM_RESULT };
   }
 
   // Time and Memory Limit
@@ -191,6 +169,85 @@ async function fetchCFProblemStatement(
   };
 }
 
+/**
+ * Parse a Codeforces editorial/blog page HTML into markdown.
+ * Pure function — no network calls. Used by both the scraper and the
+ * /api/problem/parse endpoint.
+ */
+export function parseCFEditorialHtml(html: string): string | null {
+  if (!html) return null;
+
+  const $ = cheerio.load(html);
+  const $typo = $('div.ttypography').first();
+
+  if (!$typo.length) return null;
+
+  // Unescape < > inside <pre>/<code> so turndown renders them correctly
+  $typo.find('pre, code').each((_, el) => {
+    const $el = $(el);
+    $el.html(($el.html() || '').replace(/</g, '<').replace(/>/g, '>'));
+  });
+
+  const content = $typo.html() || '';
+  if (content.trim().length > 100) return htmlToMarkdown(content);
+
+  return null;
+}
+
+// ── Fetch + parse (server-side, with CF bypass attempts) ──────────────────────
+
+async function fetchCFProblemStatement(
+  contestId: string,
+  index: string
+): Promise<CFProblemParseResult> {
+  const pageUrl = `https://codeforces.com/problemset/problem/${contestId}/${index}`;
+  const browserHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Connection': 'keep-alive',
+    'Upgrade-Insecure-Requests': '1',
+  };
+
+  const response = await fetch(pageUrl, { headers: browserHeaders });
+
+  let html = '';
+
+  if (response.ok) {
+    html = await response.text();
+  }
+
+  // Check if Cloudflare is blocking us (empty HTML, challenge page, or 403)
+  if (!html || html.includes('Just a moment') || html.includes('browser is being checked') || html.includes('cf-challenge') || html.includes('Please wait') || !html.includes('problem-statement')) {
+    // Try Jina AI reader proxy (bypasses Cloudflare) — request raw HTML so cheerio can parse it
+    try {
+      const jinaRes = await fetch(`https://r.jina.ai/${pageUrl}?locale=en`, {
+        headers: { 'Accept': 'text/html', 'x-respond-with': 'html' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (jinaRes.ok) {
+        const jinaHtml = await jinaRes.text();
+        if (jinaHtml && jinaHtml.includes('problem-statement')) {
+          html = jinaHtml;
+        }
+      }
+    } catch {}
+
+    // If Jina didn't return usable HTML, try Playwright
+    if (!html || !html.includes('problem-statement')) {
+      try {
+        const { renderPage } = await import('../renderer');
+        html = await renderPage(pageUrl);
+      } catch {
+        return { ...EMPTY_CF_PROBLEM_RESULT };
+      }
+    }
+  }
+
+  return parseCFProblemHtml(html);
+}
+
 // ── Difficulty mapping ────────────────────────────────────────────────────────
 
 function cfRatingToDifficulty(rating?: number): string | null {
@@ -242,6 +299,19 @@ export class CodeforcesProblemScraper implements IProblemScraper {
         parsed.contestId,
         parsed.index
       );
+
+      // Cloudflare blocked all fetch paths — surface as BLOCKED so the UI can
+      // fall back to the Companion app or manual paste.
+      if (!pageData.statement || pageData.statement.trim().length < 20) {
+        return {
+          problem: null,
+          error: {
+            type: 'ScrapeError',
+            message: 'Cloudflare 403 blocked: Could not fetch problem statement from Codeforces. Use the Companion app or manual paste.',
+            details: null,
+          } as any,
+        };
+      }
 
       // Step 3: Fetch Editorial if tutorialUrl is present
       let editorialMarkdown: string | undefined = undefined;
@@ -342,7 +412,7 @@ export class CodeforcesProblemScraper implements IProblemScraper {
  *   ## 1491E - Product of Closures
  * We match with or without ## prefix.
  */
-function extractProblemSection(editorial: string, contestId: string, index: string): string {
+export function extractProblemSection(editorial: string, contestId: string, index: string): string {
   const problemKey = `${contestId}${index.toUpperCase()}`;
 
   // Match problem section headers with or without ## prefix.
@@ -402,16 +472,8 @@ async function fetchCFEditorialFromUrl(tutorialUrl: string): Promise<string | un
 
     // Check if direct fetch got real content (not Cloudflare challenge)
     if (pageHtml && pageHtml.includes('div class="ttypography"')) {
-      const $page = cheerio.load(pageHtml);
-      const $typo = $page('div.ttypography').first();
-      if ($typo.length) {
-        $typo.find('pre, code').each((_, el) => {
-          const $el = $page(el);
-          $el.html(($el.html() || '').replace(/</g, '<').replace(/>/g, '>'));
-        });
-        const content = $typo.html() || '';
-        if (content.trim().length > 100) return htmlToMarkdown(content);
-      }
+      const editorial = parseCFEditorialHtml(pageHtml);
+      if (editorial) return editorial;
     }
 
     // Strategy 3: Jina proxy fallback (always try if direct fetch failed)
@@ -423,16 +485,8 @@ async function fetchCFEditorialFromUrl(tutorialUrl: string): Promise<string | un
       if (jinaRes.ok) {
         const jinaHtml = await jinaRes.text();
         if (jinaHtml && jinaHtml.includes('ttypography')) {
-          const $jina = cheerio.load(jinaHtml);
-          const $jtypo = $jina('div.ttypography').first();
-          if ($jtypo.length) {
-            $jtypo.find('pre, code').each((_, el) => {
-              const $el = $jina(el);
-              $el.html(($el.html() || '').replace(/</g, '<').replace(/>/g, '>'));
-            });
-            const content = $jtypo.html() || '';
-            if (content.trim().length > 100) return htmlToMarkdown(content);
-          }
+          const editorial = parseCFEditorialHtml(jinaHtml);
+          if (editorial) return editorial;
         }
       }
     } catch {}

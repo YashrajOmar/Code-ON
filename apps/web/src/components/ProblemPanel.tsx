@@ -77,6 +77,9 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
   const [isScraping, setIsScraping] = useState(false);
   const [scrapeError, setScrapeError] = useState<string | null>(null);
   const [scrapeProgress, setScrapeProgress] = useState<string | null>(null);
+  const [showManualPaste, setShowManualPaste] = useState(false);
+  const [manualPasteText, setManualPasteText] = useState("");
+  const [blockedUrl, setBlockedUrl] = useState<string | null>(null);
 
   const setScrapedProblem = useProblemStore((state) => state.setScrapedProblem);
   const { code: editorCode } = useIDEStore();
@@ -99,6 +102,146 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
     setInternalProblem(pData);
     setScrapedProblem(p as any);
     onProblemLoaded?.(pData);
+  }
+
+  // ── Companion app fallback: scrape CF via the companion's real Chrome browser ─
+  async function tryCompanionScrape(url: string): Promise<boolean> {
+    try {
+      setScrapeProgress("Checking for Companion app...");
+
+      // Step 1: Check if companion is running
+      const healthRes = await fetch("http://localhost:17890/health", {
+        signal: AbortSignal.timeout(3000),
+      }).catch(() => null);
+
+      if (!healthRes || !healthRes.ok) {
+        return false;
+      }
+
+      // Step 2: Scrape problem + editorial via companion (one request)
+      setScrapeProgress("Companion: Opening Codeforces in Chrome...");
+      const scrapeRes = await fetch("http://localhost:17890/scrape-cf-problem", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+        signal: AbortSignal.timeout(60000),
+      }).catch(() => null);
+
+      if (!scrapeRes || !scrapeRes.ok) {
+        const errData = scrapeRes ? await scrapeRes.json().catch(() => ({})) : {};
+        setScrapeError(`Companion scrape failed: ${errData.error || "unknown error"}`);
+        return false;
+      }
+
+      const { problemHtml, editorialHtml } = await scrapeRes.json();
+      if (!problemHtml || !problemHtml.includes("problem-statement")) {
+        setScrapeError("Companion returned HTML but no problem statement found");
+        return false;
+      }
+
+      // Step 3: Parse the HTML via the web app's parse endpoint
+      setScrapeProgress("Companion: Parsing problem...");
+      const parseRes = await fetch("/api/problem/parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url, problemHtml, editorialHtml }),
+      });
+
+      if (!parseRes.ok) {
+        const errData = await parseRes.json().catch(() => ({}));
+        setScrapeError(`Parse failed: ${errData.error || "unknown error"}`);
+        return false;
+      }
+
+      const { problem, tutorialUrl } = await parseRes.json();
+
+      // Step 4: If editorial not yet scraped but tutorialUrl exists, fetch it via companion
+      if (problem && tutorialUrl && !problem.content?.editorialMarkdown) {
+        setScrapeProgress("Companion: Fetching editorial...");
+        try {
+          const edRes = await fetch("http://localhost:17890/scrape", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: tutorialUrl }),
+            signal: AbortSignal.timeout(30000),
+          });
+          if (edRes.ok) {
+            const { html: edHtml } = await edRes.json();
+            if (edHtml) {
+              const parseRes2 = await fetch("/api/problem/parse", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ url, problemHtml, editorialHtml: edHtml }),
+              });
+              if (parseRes2.ok) {
+                const data2 = await parseRes2.json();
+                if (data2.problem) {
+                  updateProblem(data2.problem);
+                  setUrlInput("");
+                  setTab("statement");
+                  return true;
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+
+      if (problem) {
+        updateProblem(problem);
+        setUrlInput("");
+        setTab("statement");
+        return true;
+      }
+
+      setScrapeError("Companion returned data but parsing produced no problem");
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  // ── Manual paste fallback ──────────────────────────────────────────────────
+  async function handleManualPaste() {
+    if (!manualPasteText.trim() || !blockedUrl) return;
+    setIsScraping(true);
+    setScrapeError(null);
+    setScrapeProgress("Parsing pasted content...");
+
+    try {
+      const isHtml = manualPasteText.includes("<") && manualPasteText.includes(">");
+      const parseRes = await fetch("/api/problem/parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: blockedUrl,
+          problemHtml: isHtml ? manualPasteText : undefined,
+          rawText: isHtml ? undefined : manualPasteText,
+        }),
+      });
+
+      if (!parseRes.ok) {
+        const errData = await parseRes.json().catch(() => ({}));
+        setScrapeError(`Parse failed: ${errData.error || "unknown error"}`);
+        return;
+      }
+
+      const { problem } = await parseRes.json();
+      if (problem) {
+        updateProblem(problem);
+        setShowManualPaste(false);
+        setManualPasteText("");
+        setBlockedUrl(null);
+        setTab("statement");
+      } else {
+        setScrapeError("Could not parse the pasted content");
+      }
+    } catch {
+      setScrapeError("Network error while parsing pasted content");
+    } finally {
+      setIsScraping(false);
+      setScrapeProgress(null);
+    }
   }
 
   async function scrapeUrl(url: string) {
@@ -151,11 +294,29 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
               if (eventName === "progress") {
                 setScrapeProgress(data.message);
               } else if (eventName === "success") {
-                updateProblem(data.data);
-                setUrlInput("");
-                setTab("statement");
+                // Check if statement is actually present (not empty)
+                if (data.data?.content?.problemStatementMarkdown && data.data.content.problemStatementMarkdown.length > 20) {
+                  updateProblem(data.data);
+                  setUrlInput("");
+                  setTab("statement");
+                } else {
+                  // Empty statement = Cloudflare blocked. Show manual paste.
+                  setBlockedUrl(url.trim());
+                  setScrapeError("Codeforces blocked by Cloudflare. Open the URL in your browser, copy the page source, and paste it below.");
+                  setShowManualPaste(true);
+                }
+              } else if (eventName === "blocked") {
+                setBlockedUrl(url.trim());
+                setScrapeError(data.message || "Codeforces blocked. Open the URL in your browser and paste the page source below.");
+                setShowManualPaste(true);
               } else if (eventName === "error") {
-                setScrapeError(data.message || "Failed to scrape problem");
+                if (url.includes('codeforces.com')) {
+                  setBlockedUrl(url.trim());
+                  setScrapeError(data.message || "Scraping failed. Open the URL in your browser and paste the page source below.");
+                  setShowManualPaste(true);
+                } else {
+                  setScrapeError(data.message || "Failed to scrape problem");
+                }
               }
             } catch (e) {
               console.error("Failed to parse SSE data", e);
@@ -230,6 +391,64 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
         {scrapeError && (
           <div style={{ fontSize: 11, color: "var(--brand-rose)", marginTop: 6 }}>
             ⚠️ {scrapeError}
+          </div>
+        )}
+        {showManualPaste && (
+          <div style={{ marginTop: 10, padding: 10, background: "var(--surface-3)", borderRadius: 8, border: "1px solid var(--border-default)" }}>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>
+              Codeforces is blocking automated access. Two options:
+            </div>
+            <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+              <button
+                onClick={() => {
+                  if (blockedUrl) window.open(blockedUrl, "_blank");
+                }}
+                style={{
+                  padding: "5px 10px", borderRadius: 5, border: "1px solid var(--brand-cyan)",
+                  background: "rgba(34,211,238,0.1)", color: "var(--brand-cyan)",
+                  fontSize: 11, fontWeight: 600, cursor: "pointer",
+                }}
+              >
+                Open Problem in Browser
+              </button>
+              <button
+                onClick={() => { setShowManualPaste(false); setBlockedUrl(null); setScrapeError(null); }}
+                style={{
+                  padding: "5px 10px", borderRadius: 5, border: "1px solid var(--border-default)",
+                  background: "var(--surface-2)", color: "var(--text-muted)",
+                  fontSize: 11, cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+            <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>
+              Click "Open Problem in Browser" → your browser loads the page (Cloudflare lets real browsers through) → right-click → "View Page Source" → copy all → paste below:
+            </div>
+            <textarea
+              value={manualPasteText}
+              onChange={(e) => setManualPasteText(e.target.value)}
+              placeholder="Open the Codeforces problem page in your browser, right-click → View Page Source, copy all, and paste here. Or just paste the problem text."
+              style={{
+                width: "100%", minHeight: 80, padding: "6px 8px", borderRadius: 5,
+                background: "var(--surface-1)", border: "1px solid var(--border-default)",
+                color: "var(--text-primary)", fontSize: 11, fontFamily: "monospace",
+                outline: "none", resize: "vertical",
+              }}
+            />
+            <button
+              onClick={handleManualPaste}
+              disabled={isScraping || !manualPasteText.trim()}
+              style={{
+                marginTop: 6, padding: "5px 12px", borderRadius: 5, border: "none",
+                background: "linear-gradient(135deg, var(--brand-violet), var(--brand-indigo))",
+                color: "white", fontSize: 11, fontWeight: 600,
+                cursor: (isScraping || !manualPasteText.trim()) ? "not-allowed" : "pointer",
+                opacity: (isScraping || !manualPasteText.trim()) ? 0.6 : 1,
+              }}
+            >
+              Parse Pasted Content
+            </button>
           </div>
         )}
       </div>
