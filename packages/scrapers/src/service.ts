@@ -34,10 +34,8 @@ export class ProblemScraperService implements ProblemCachePort {
         return null;
       }
 
-      // Skip cache if editorial is missing (stale scrape from before Jina editorial fix)
-      if (!validated.content?.editorialMarkdown || validated.content.editorialMarkdown.trim().length < 10) {
-        return null;
-      }
+      // NOTE: Do NOT skip cache for missing editorial — many problems legitimately don't have one.
+      // The editorial will be fetched fresh on the next scrape if available.
 
       return validated;
     } catch (e) {

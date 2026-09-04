@@ -59,6 +59,15 @@ app.whenReady().then(() => {
   createWindow();
   createTray();
 
+  // Pre-warm a headless browser context so cookie checks (login status + auto-sync
+  // auth gate) work immediately. Cookies live in the persistent profile, which only
+  // an active Playwright context can read — so the context must exist before any
+  // cookie check. Headless = nothing visible on boot (app is hidden in tray).
+  browserReadyPromise = getBrowser(false).catch((e) => {
+    console.log("[Startup] Pre-warm browser context failed:", e.message);
+    browserReadyPromise = null;
+  });
+
   // Start auto-sync timer
   startAutoSync();
 
@@ -79,6 +88,7 @@ app.isQuitting = false;
 
 // ── Auto-sync cooldown (strict boolean gate) ─────────────────────────────────
 let isCoolingDown = false;
+let syncInProgress = false;
 
 function startAutoSync() {
   if (autoSyncTimer) clearInterval(autoSyncTimer);
@@ -326,6 +336,16 @@ ipcMain.handle("get-settings", () => loadSettings());
 ipcMain.handle("save-settings", (_, settings) => saveSettings(settings));
 
 let browserContext = null;
+let browserContextHeadless = null;
+let browserReadyPromise = null;
+
+// Wait for the startup pre-warm to finish so we never double-launch on the same profile
+async function awaitBrowserReady() {
+  if (browserReadyPromise) {
+    try { await browserReadyPromise; } catch {}
+    browserReadyPromise = null;
+  }
+}
 
 async function killChromeAndClearLocks() {
   const { execSync } = require("child_process");
@@ -355,43 +375,58 @@ async function killChromeAndClearLocks() {
   }
 }
 
-async function getBrowser(visible) {
+async function getBrowser(visible, { reuseAny = false } = {}) {
+  // Wait for any in-flight startup pre-warm to avoid a double-launch lock conflict
+  await awaitBrowserReady();
+
+  const wantHeadless = visible === false;
+
   if (browserContext) {
-    try {
-      await browserContext.pages();
-      return browserContext;
-    } catch {
+    // Reuse if the caller accepts any visibility, or if it matches what we want
+    if (reuseAny || browserContextHeadless === wantHeadless) {
+      try {
+        await browserContext.pages();
+        return browserContext;
+      } catch {
+        browserContext = null;
+        browserContextHeadless = null;
+      }
+    } else {
+      // Visibility mismatch (e.g. pre-warmed headless, now need visible for login) —
+      // close & recreate. Cookies persist in the profile, so they survive the swap.
+      try { await browserContext.close(); } catch {}
       browserContext = null;
+      browserContextHeadless = null;
     }
   }
-  
+
   const { chromium } = require("playwright");
   if (!existsSync(PROFILE_DIR)) mkdirSync(PROFILE_DIR, { recursive: true });
-  
+
   await killChromeAndClearLocks();
-  
+
   const args = ["--disable-blink-features=AutomationControlled", "--start-maximized"];
-  const isHeadless = visible === false;
-  
+
   try {
     browserContext = await chromium.launchPersistentContext(PROFILE_DIR, {
-      headless: isHeadless,
+      headless: wantHeadless,
       channel: "chrome",
-      viewport: isHeadless ? { width: 1280, height: 800 } : null,
+      viewport: wantHeadless ? { width: 1280, height: 800 } : null,
       args,
       ignoreDefaultArgs: ["--enable-automation"],
     });
   } catch (e) {
     await killChromeAndClearLocks();
     browserContext = await chromium.launchPersistentContext(PROFILE_DIR, {
-      headless: isHeadless,
+      headless: wantHeadless,
       channel: "chrome",
-      viewport: isHeadless ? { width: 1280, height: 800 } : null,
+      viewport: wantHeadless ? { width: 1280, height: 800 } : null,
       args,
       ignoreDefaultArgs: ["--enable-automation"],
     });
   }
-  
+
+  browserContextHeadless = wantHeadless;
   return browserContext;
 }
 
@@ -462,6 +497,7 @@ const SESSION_COOKIE_MAP = {
 
 // ── Active session verification (hybrid: cookies first, then API check) ──────
 async function verifyActiveSession(platform) {
+  await awaitBrowserReady();
   if (!browserContext) {
     return { loggedIn: false, handle: null };
   }
@@ -676,13 +712,18 @@ ipcMain.handle("login", async (_, { platform }) => {
     const p = PLATFORMS[platform];
     if (!p) return { success: false, error: "Unknown platform" };
 
-    // Don't close existing browser — just open a new tab in it
-    // This way sync continues running while user logs in
+    // Don't recreate the browser while a sync is running — closing the context
+    // mid-sync would break the in-flight scrape. Wait for sync to finish first.
+    if (syncInProgress) {
+      return { success: false, error: "Sync in progress. Wait for it to finish, then click Login again." };
+    }
+
+    // Opens a visible Chrome tab (recreating the context as visible if it was headless)
     const browser = await getBrowser();
     const page = await browser.newPage();
     await page.goto(p.loginUrl, { waitUntil: "domcontentloaded", timeout: 15000 }).catch(() => {});
 
-    mainWindow.webContents.send("status", `[${p.name}] New tab opened. Log in, then close the tab. Sync continues in background.`);
+    mainWindow.webContents.send("status", `[${p.name}] New tab opened. Log in, then close the tab.`);
     return { success: true };
   } catch (e) {
     return { success: false, error: e.message };
@@ -736,6 +777,21 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken, isAutoSyn
 
   const authToken = companionToken.trim();
 
+  syncInProgress = true;
+
+  // ── Create browser context FIRST so cookies can be read ──────────────────
+  // Cookies live in the persistent profile, so Playwright needs an active
+  // context to read them. reuseAny = keep an existing (e.g. visible login)
+  // context instead of forcing headless/visible; only create new if none.
+  try {
+    await getBrowser(!isAutoSync, { reuseAny: true });
+  } catch (e) {
+    syncInProgress = false;
+    results.errors.push(`Failed to start browser: ${e.message}`);
+    results.status = "error";
+    return results;
+  }
+
   // ── AUTH GATE: Check cookies from existing browserContext ────────────────
   let allAuthFailed = true;
   const authenticatedPlatforms = new Set();
@@ -773,14 +829,14 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken, isAutoSyn
       // Release cooldown after 5 minutes
       setTimeout(() => { isCoolingDown = false; }, 5 * 60 * 1000);
     }
+    syncInProgress = false;
     results.status = "done";
     return results;
   }
 
   // ── Only now create a page (after auth verified) ────────────────────────────
   try {
-    const browser = await getBrowser(!isAutoSync); // visible for manual, headless for auto
-    const page = await browser.newPage();
+    const page = await browserContext.newPage();
 
     for (const [platform, handle] of Object.entries(handles)) {
       if (!handle || !handle.trim()) continue;
@@ -1113,6 +1169,8 @@ ipcMain.handle("sync", async (_, { handles, codeonUrl, companionToken, isAutoSyn
     results.errors.push(e.message);
     results.status = "error";
     return results;
+  } finally {
+    syncInProgress = false;
   }
 });
 
