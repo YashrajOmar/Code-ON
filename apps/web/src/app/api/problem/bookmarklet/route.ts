@@ -3,7 +3,6 @@ import {
   parseCFProblemHtml,
   parseCFEditorialHtml,
   extractCFProblemId,
-  extractProblemSection,
   postProcessScrapedProblem,
   mapToPublicScrapedProblemDTO,
   ScrapedProblemSchema,
@@ -22,12 +21,9 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 200, headers: corsHeaders });
 }
 
-// SSE subscribers (shared with companion route)
-type Subscriber = (data: any) => void;
-
 export async function POST(req: NextRequest) {
   try {
-    const { url, html, editorialHtml } = await req.json();
+    const { url, html, editorialHtml, referenceSolutions } = await req.json();
 
     if (!url || !html) {
       return NextResponse.json({ error: 'url and html are required' }, { status: 400, headers: corsHeaders });
@@ -71,7 +67,7 @@ export async function POST(req: NextRequest) {
       editorialMarkdown = parseCFEditorialHtml(editorialHtml);
     }
 
-    // 4. AI structuring — extract ONLY this problem's editorial from the full blog post
+    // 4. AI structuring — extract ONLY this problem's editorial + clean it
     if (editorialMarkdown && editorialMarkdown.length > 20) {
       try {
         const provider = await getActiveProvider();
@@ -133,7 +129,7 @@ Output ONLY the editorial for problem ${problemId}. If ${problemId} is not menti
       }
     }
 
-    // 5. Build ScrapedProblem
+    // 5. Build ScrapedProblem with reference solutions (from bookmarklet)
     const problem = {
       id: `${contestId}${index}`,
       url,
@@ -155,6 +151,9 @@ Output ONLY the editorial for problem ${problemId}. If ${problemId} is not menti
         input: ex.input,
         output: ex.output,
       })),
+      referenceSolutions: referenceSolutions && referenceSolutions.length > 0
+        ? referenceSolutions.map((rs: any) => ({ code: rs.code, language: rs.language || 'cpp', url: rs.url }))
+        : undefined,
     };
 
     // 6. Post-process + validate
@@ -162,7 +161,7 @@ Output ONLY the editorial for problem ${problemId}. If ${problemId} is not menti
     const validated = ScrapedProblemSchema.parse(cleaned);
     const dto = mapToPublicScrapedProblemDTO(validated);
 
-    // 7. Save to DB
+    // 7. Save to DB (NO SSE broadcast — prevents other users seeing the same problem)
     try {
       const service = new ProblemScraperService(prisma);
       await service.saveProblem('codeforces', url, validated, 0);
@@ -170,21 +169,11 @@ Output ONLY the editorial for problem ${problemId}. If ${problemId} is not menti
       console.warn('[Bookmarklet] DB save failed:', e);
     }
 
-    // 8. Broadcast via SSE (reuse companion route's subscriber set)
-    // The CompanionNotifier component is already listening for SSE events
-    // We need to import the subscribers from the companion route
-    // Since they're in a different module, we'll use a global approach
-    try {
-      const { broadcastProblem } = await import('@/lib/sse-broadcast');
-      broadcastProblem(dto);
-    } catch {
-      // SSE broadcast module not available — the parse route still returns the problem
-    }
-
+    // 8. Return problem data (NO broadcast to other users)
     return NextResponse.json({
       success: true,
       problem: dto,
-      message: `Problem "${dto.title}" imported successfully!`,
+      message: `Problem "${dto.title}" saved! Go to CodeOn and paste the URL to load it.`,
     }, { headers: corsHeaders });
   } catch (error: any) {
     console.error('[Bookmarklet Route] Error:', error);
