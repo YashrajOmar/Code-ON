@@ -154,30 +154,59 @@ CRITICAL RULES:
 
 Problem: ${cfProblem.name || `Problem ${problemId}`}
 Raw HTML (clean, from server):
-${html.substring(0, 4000)}
+${html.substring(0, 6000)}
 
 Output ONLY the formatted problem statement in markdown with proper LaTeX.`;
 
-    // AI Task 2: Extract + format editorial for the SPECIFIC problem (fuzzy matching)
-    const editorialPlainText = editorialHtml ? stripHtml(editorialHtml).substring(0, 5000) : '';
-    const editorialPrompt = `You are extracting the editorial for Problem ${problemLetter} titled "${cfProblem.name || 'unknown'}" from a Codeforces editorial blog post for contest ${contestId}.
+    // AI Task 2: Extract + format editorial for the SPECIFIC problem
+    // Pre-slice: find the problem in the text, start from there (saves tokens + prevents wrong problem)
+    let editorialPlainText = '';
+    if (editorialHtml) {
+      let fullText = stripHtml(editorialHtml);
+      
+      // Try to find the start of THIS problem's editorial section
+      const patterns = [
+        `${problemLetter}. ${cfProblem.name || ''}`,  // "I2. DBFS Order"
+        `${problemLetter} - ${cfProblem.name || ''}`,  // "I2 - DBFS Order"
+        `${problemId} - ${cfProblem.name || ''}`,      // "2237I2 - DBFS Order"
+        `${problemId}`,                                  // "2237I2"
+        `${cfProblem.name || ''}`,                       // "DBFS Order (Hard Version)"
+      ];
+      
+      let sliceStart = -1;
+      for (const pattern of patterns) {
+        if (pattern && pattern.length > 2) {
+          const idx = fullText.indexOf(pattern);
+          if (idx >= 0) {
+            sliceStart = idx;
+            break;
+          }
+        }
+      }
+      
+      if (sliceStart > 0) {
+        // Start from the problem's section — cuts out all prior problems' editorials
+        editorialPlainText = fullText.substring(sliceStart, sliceStart + 6000);
+      } else {
+        // Fallback: send from middle of text (skip intro/announcements)
+        const midPoint = Math.floor(fullText.length / 3);
+        editorialPlainText = fullText.substring(midPoint, midPoint + 6000);
+      }
+    }
 
-The blog post contains editorials for MULTIPLE problems (A, B, C, D, E, F).
+    const editorialPrompt = `You are extracting the editorial STRICTLY for Problem ${problemLetter} titled "${cfProblem.name || 'unknown'}".
 
-MATCHING RULES (fuzzy matching):
-- Scan the text for headers or bold text containing "${problemLetter}", "${cfProblem.name || ''}", or both
-- Codeforces authors use various formats: "F. A Bit Odd", "F - A Bit Odd", "Problem F", "116F", or just "A Bit Odd"
-- If you find a match, extract ALL text and code from that point until you hit the header for the NEXT problem (e.g., Problem G) or the end of the post
-- If you cannot find a dedicated section, output a summary of the most likely relevant approach found in the text. Do NOT return empty.
+CRITICAL: Do NOT summarize or include information about Problem A, Problem B, or ANY other problem. Ignore the rest of the page. If you see content about other problems, SKIP it.
 
-FORMAT RULES:
-- Convert any MathJax/$$$ syntax to proper LaTeX ($...$ or $$...$$)
-- Format code in proper cpp code blocks
-- Include the reference solution code if provided
+The text below has been pre-sliced to start near your target problem. Extract ONLY the explanation, complexity, and code for Problem ${problemLetter}.
 
-Output format:
+If you cannot find this specific problem, return exactly: "Editorial not found for Problem ${problemLetter}." Do not guess or return the first problem on the page.
+
+Convert any math notation to proper LaTeX ($...$ or $$...$$).
+Format code in proper cpp code blocks.
+
 ## Approach
-(explain the approach for Problem ${problemLetter} only)
+(explain the approach for Problem ${problemLetter} ONLY)
 
 ## Complexity
 (time and space complexity)
@@ -185,10 +214,10 @@ Output format:
 ## Reference Solution
 ${refCode ? '```cpp\n' + refCode + '\n```' : '(no reference solution was provided)'}
 
-Plain text of editorial blog post:
+Pre-sliced editorial text (starts near Problem ${problemLetter}):
 ${editorialPlainText}
 
-Output ONLY the editorial for Problem ${problemLetter}. Never return empty — always provide at least a summary.`;
+Output ONLY the editorial for Problem ${problemLetter}.`;
 
     // Run both AI calls in parallel
     let statementMarkdown = html; // fallback: raw HTML
