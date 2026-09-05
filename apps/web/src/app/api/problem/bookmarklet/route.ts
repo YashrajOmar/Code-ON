@@ -24,7 +24,11 @@ async function aiCall(provider: any, prompt: string): Promise<string | null> {
     if (provider.format === 'gemini') {
       const { GoogleGenAI } = await import('@google/genai');
       const ai = new GoogleGenAI({ apiKey: provider.apiKey });
-      const response = await ai.models.generateContent({ model: provider.model, contents: prompt });
+      const response = await ai.models.generateContent({ 
+        model: provider.model, 
+        contents: prompt,
+        config: { maxOutputTokens: 8192 },
+      });
       return response.text && response.text.trim().length > 20 ? response.text.trim() : null;
     }
     if (provider.format === 'openai') {
@@ -32,8 +36,8 @@ async function aiCall(provider: any, prompt: string): Promise<string | null> {
       const res = await fetch(`${baseUrl.replace(/\/$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${provider.apiKey}` },
-        body: JSON.stringify({ model: provider.model, messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 4000 }),
-        signal: AbortSignal.timeout(90000),
+        body: JSON.stringify({ model: provider.model, messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 8192 }),
+        signal: AbortSignal.timeout(120000),
       });
       if (res.ok) {
         const data = await res.json();
@@ -46,8 +50,8 @@ async function aiCall(provider: any, prompt: string): Promise<string | null> {
       const res = await fetch(`${baseUrl.replace(/\/$/, '')}/v1/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': provider.apiKey, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: provider.model, messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 4000 }),
-        signal: AbortSignal.timeout(90000),
+        body: JSON.stringify({ model: provider.model, messages: [{ role: 'user', content: prompt }], temperature: 0.2, max_tokens: 8192 }),
+        signal: AbortSignal.timeout(120000),
       });
       if (res.ok) {
         const data = await res.json();
@@ -185,12 +189,12 @@ Output ONLY the formatted problem statement in markdown with proper LaTeX.`;
       }
       
       if (sliceStart > 0) {
-        // Start from the problem's section — cuts out all prior problems' editorials
-        editorialPlainText = fullText.substring(sliceStart, sliceStart + 6000);
+        // Start from the problem's section — send MORE text (up to 10000 chars)
+        editorialPlainText = fullText.substring(sliceStart, sliceStart + 10000);
       } else {
         // Fallback: send from middle of text (skip intro/announcements)
         const midPoint = Math.floor(fullText.length / 3);
-        editorialPlainText = fullText.substring(midPoint, midPoint + 6000);
+        editorialPlainText = fullText.substring(midPoint, midPoint + 10000);
       }
     }
 
