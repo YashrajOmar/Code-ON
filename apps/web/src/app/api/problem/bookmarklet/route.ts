@@ -138,37 +138,44 @@ export async function POST(req: NextRequest) {
       ? referenceSolutions[0].code.substring(0, 1500)
       : '';
 
-    // AI Task 1: Format problem statement (convert MathJax HTML to clean markdown with LaTeX)
+    // AI Task 1: Format problem statement (convert $$$ syntax to LaTeX, preserve <pre> blocks)
     const statementPrompt = `Convert this Codeforces problem statement HTML into clean, well-formatted markdown.
 
-Rules:
-- Convert MathJax spans (<span class="MathJax">, <script type="math/tex">) to proper LaTeX: $...$ for inline, $$...$$ for display
-- Preserve images as ![image](url)
-- Keep sections: problem title, legend, input format, output format, note
-- Remove all HTML tags, CSS classes, JavaScript
-- Keep it clean and readable
+CRITICAL RULES:
+1. Convert Codeforces inline math (wrapped in $$$) to standard LaTeX (wrapped in $).
+   Example: $$$n$$$ → $n$, $$$a_i$$$ → $a_i$
+2. Convert Codeforces display math (wrapped in $$$$$$) to display LaTeX (wrapped in $$).
+   Example: $$$$$$\\sum_{i=1}^n a_i$$$$$$ → $$\\sum_{i=1}^n a_i$$
+3. When you encounter a <pre> or <div class="input"> block, preserve the EXACT line breaks. Do not squash numbers together. Format them as markdown code blocks.
+4. Preserve images as ![image](url)
+5. Keep sections: problem title, legend, input format, output format, note
+6. Remove all remaining HTML tags, CSS classes, JavaScript, MathJax spans
+7. Keep markdown structure (headers, lists, bold)
 
 Problem: ${cfProblem.name || `Problem ${problemId}`}
-Raw HTML (truncated):
-${html.substring(0, 3000)}
+Raw HTML (clean, from server):
+${html.substring(0, 4000)}
 
-Output ONLY the formatted problem statement in markdown with LaTeX.`;
+Output ONLY the formatted problem statement in markdown with proper LaTeX.`;
 
-    // AI Task 2: Extract + format editorial for the SPECIFIC problem
-    const editorialPlainText = editorialHtml ? stripHtml(editorialHtml).substring(0, 4000) : '';
-    const editorialPrompt = `You are given a Codeforces editorial blog post for contest ${contestId}. It contains editorials for MULTIPLE problems (A, B, C, D, E, F).
+    // AI Task 2: Extract + format editorial for the SPECIFIC problem (fuzzy matching)
+    const editorialPlainText = editorialHtml ? stripHtml(editorialHtml).substring(0, 5000) : '';
+    const editorialPrompt = `You are extracting the editorial for Problem ${problemLetter} titled "${cfProblem.name || 'unknown'}" from a Codeforces editorial blog post for contest ${contestId}.
 
-CRITICAL: Extract ONLY the editorial for Problem ${problemLetter} (${cfProblem.name || 'unknown'}).
+The blog post contains editorials for MULTIPLE problems (A, B, C, D, E, F).
 
-The blog post has sections like:
-- "Problem A" or "116A" or "A - Tram" or link to /contest/116/problem/A
-- "Problem E" or "116E" or "E - Tram" or link to /contest/116/problem/E
+MATCHING RULES (fuzzy matching):
+- Scan the text for headers or bold text containing "${problemLetter}", "${cfProblem.name || ''}", or both
+- Codeforces authors use various formats: "F. A Bit Odd", "F - A Bit Odd", "Problem F", "116F", or just "A Bit Odd"
+- If you find a match, extract ALL text and code from that point until you hit the header for the NEXT problem (e.g., Problem G) or the end of the post
+- If you cannot find a dedicated section, output a summary of the most likely relevant approach found in the text. Do NOT return empty.
 
-You MUST find Problem ${problemLetter}. Do NOT give me Problem A if I asked for Problem ${problemLetter}.
+FORMAT RULES:
+- Convert any MathJax/$$$ syntax to proper LaTeX ($...$ or $$...$$)
+- Format code in proper cpp code blocks
+- Include the reference solution code if provided
 
-Convert any MathJax/LaTeX in the editorial to proper $...$ or $$...$$ markdown.
-
-Format as clean markdown:
+Output format:
 ## Approach
 (explain the approach for Problem ${problemLetter} only)
 
@@ -181,7 +188,7 @@ ${refCode ? '```cpp\n' + refCode + '\n```' : '(no reference solution was provide
 Plain text of editorial blog post:
 ${editorialPlainText}
 
-Output ONLY the editorial for Problem ${problemLetter}. If ${problemLetter} is not mentioned, output: "Editorial not available for Problem ${problemLetter}."`;
+Output ONLY the editorial for Problem ${problemLetter}. Never return empty — always provide at least a summary.`;
 
     // Run both AI calls in parallel
     let statementMarkdown = html; // fallback: raw HTML
@@ -198,6 +205,9 @@ Output ONLY the editorial for Problem ${problemLetter}. If ${problemLetter} is n
       }
       if (editorialResult.status === 'fulfilled' && editorialResult.value) {
         editorialMarkdown = editorialResult.value;
+      } else {
+        // Fallback: don't fail silently — inject default message so frontend doesn't break
+        editorialMarkdown = "## Editorial\n\nThe AI could not extract the editorial automatically. Please check the blog link manually.";
       }
     }
 

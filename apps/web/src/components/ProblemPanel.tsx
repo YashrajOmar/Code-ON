@@ -67,19 +67,22 @@ interface ProblemPanelProps {
   problemData?: ProblemData | null;
 }
 
-// Bookmarklet code — sends only .problem-statement div (not full page)
+// Bookmarklet code — fetches clean HTML from server (before MathJax renders)
 const BOOKMARKLET_CODE = [
   "javascript:(async function(){try{",
   "const url=location.href;",
   "",
-  "// Extract ONLY the problem-statement div (not the full page)",
-  "const ps=document.querySelector('.problem-statement');",
-  "const html=ps?ps.outerHTML:'';",
-  "if(!html){alert('No .problem-statement found on this page. Make sure you are on a Codeforces problem page.');return;}",
+  "// 1. Fetch clean, unrendered problem HTML directly from the server",
+  "const rawProblemRes=await fetch(url);",
+  "const rawProblemHtml=await rawProblemRes.text();",
+  "const problemDoc=new DOMParser().parseFromString(rawProblemHtml,'text/html');",
+  "const pNode=problemDoc.querySelector('.problem-statement');",
+  "const html=pNode?pNode.outerHTML:'';",
+  "if(!html){alert('No .problem-statement found on this page.');return;}",
   "",
-  "// Find editorial link and fetch it",
+  "// 2. Find editorial link and fetch it",
   "let edHtml=null;",
-  "const allLinks=document.querySelectorAll('a[href*=\"/blog/entry/\"]');",
+  "const allLinks=problemDoc.querySelectorAll('a[href*=\"/blog/entry/\"]');",
   "for(const link of allLinks){",
   "  const text=link.textContent.toLowerCase();",
   "  if(text.includes('tutorial')||text.includes('editorial')){",
@@ -88,7 +91,7 @@ const BOOKMARKLET_CODE = [
   "  }",
   "}",
   "",
-  "// Find contest ID and problem index from URL",
+  "// 3. Find contest ID and problem index from URL",
   "const m=url.match(/problemset\\/problem\\/(\\d+)\\/([a-zA-Z0-9]+)/)||url.match(/contest\\/(\\d+)\\/problem\\/([a-zA-Z0-9]+)/);",
   "let refSolutions=[];",
   "if(m){",
@@ -114,7 +117,7 @@ const BOOKMARKLET_CODE = [
   "  }catch(e){}",
   "}",
   "",
-  "// Send to CodeOn",
+  "// 4. Send to CodeOn",
   "const r=await fetch('https://codeon-coding-coach-eight.vercel.app/api/problem/bookmarklet',",
   "{method:'POST',headers:{'Content-Type':'application/json'},",
   "body:JSON.stringify({url,html,editorialHtml:edHtml,referenceSolutions:refSolutions})});",
