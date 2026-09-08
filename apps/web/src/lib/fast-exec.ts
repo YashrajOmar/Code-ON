@@ -165,8 +165,85 @@ async function executeViaWandbox(
 }
 
 /**
- * Execute code — tries Docker first, falls back to Piston API.
- * Works on both local dev (Docker) and Vercel (Piston).
+ * Execute code via Judge0 CE (RapidAPI).
+ * Free tier: 50 requests/day. Requires JUDGE0_RAPIDAPI_KEY env var.
+ * https://judge0.com / https://rapidapi.com/judge0-ce-judge0-ce-default/api/judge0-ce
+ */
+async function executeViaJudge0(
+  code: string,
+  input: string,
+  timeoutMs: number,
+  language: string = "cpp17"
+): Promise<{ output: string; error: string | null }> {
+  const apiKey = process.env.JUDGE0_RAPIDAPI_KEY;
+  if (!apiKey) throw new Error("JUDGE0_RAPIDAPI_KEY not set");
+
+  // Map our language names to Judge0 language IDs
+  const langIdMap: Record<string, number> = {
+    cpp: 54,      // C++ (GCC 9.2.0)
+    cpp17: 54,
+    cpp20: 54,
+    python3: 71,  // Python 3 (CPython 3.7.7)
+    python: 71,
+    java: 62,     // Java (OpenJDK 13.0.1)
+  };
+  const languageId = langIdMap[language] ?? langIdMap["cpp17"];
+
+  const response = await fetch(
+    "https://judge0-ce.p.rapidapi.com/submissions/?wait=true&fields=*",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-RapidAPI-Host": "judge0-ce.p.rapidapi.com",
+        "X-RapidAPI-Key": apiKey,
+      },
+      body: JSON.stringify({
+        language_id: languageId,
+        source_code: code,
+        stdin: input,
+        cpu_time_limit: Math.ceil(timeoutMs / 1000),
+        memory_limit: 262144, // 256 MB
+      }),
+      signal: AbortSignal.timeout(Math.max(30000, timeoutMs + 15000)),
+    }
+  );
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "Unknown error");
+    throw new Error(`Judge0 API error (${response.status}): ${errText.substring(0, 200)}`);
+  }
+
+  const data = await response.json();
+
+  // Status IDs: 3=Accepted, 5=TLE, 6=Compilation Error, others=Runtime Error
+  const statusId = data.status?.id;
+  const compileOutput = (data.compile_output || "").trim();
+  const stdout = (data.stdout || "").trim();
+  const stderr = (data.stderr || "").trim();
+
+  // Compilation error
+  if (statusId === 6 || compileOutput) {
+    return { output: compileOutput || "Compilation error", error: "compilation" };
+  }
+
+  // Time limit exceeded
+  if (statusId === 5) {
+    return { output: "Time Limit Exceeded", error: "timeout" };
+  }
+
+  // Runtime error (status 7-13)
+  if (statusId && statusId > 3 && statusId !== 6 && statusId !== 5) {
+    return { output: stderr || data.status?.description || "Runtime Error", error: stderr || "runtime" };
+  }
+
+  // Success (status 3) — return stdout
+  return { output: stdout, error: stderr || null };
+}
+
+/**
+ * Execute code — tries Docker first (local dev), then Judge0 (cloud), then Wandbox (fallback).
+ * Works on both local dev (Docker) and Vercel (Judge0/Wandbox).
  */
 export async function executeCode(
   code: string,
@@ -180,10 +257,17 @@ export async function executeCode(
     try {
       return await executeViaDocker(code, input, timeoutMs);
     } catch {
-      // Docker failed — fall back to Wandbox
+      // Docker failed — fall back
     }
   }
 
-  // Fall back to Wandbox API (deployed / no Docker)
+  // Try Judge0 CE (cloud — requires RapidAPI key)
+  try {
+    return await executeViaJudge0(code, input, timeoutMs, language);
+  } catch {
+    // Judge0 failed (no key, rate limit, or API error) — fall back to Wandbox
+  }
+
+  // Fall back to Wandbox API (free, but currently unstable)
   return await executeViaWandbox(code, input, timeoutMs, language);
 }
