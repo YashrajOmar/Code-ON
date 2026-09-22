@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import ProblemStatementView from "@/components/ProblemStatementView";
 import { useProblemStore } from "@/store/useProblemStore";
 import { useIDEStore } from "@/store/useIDEStore";
@@ -154,6 +154,18 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
 
   const setScrapedProblem = useProblemStore((state) => state.setScrapedProblem);
   const { code: editorCode } = useIDEStore();
+
+  // ── Per-tab scroll position persistence (like LeetCode) ─────────────────
+  const scrollPositions = useRef<Record<string, number>>({});
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Save scroll position when leaving a tab, restore when entering one
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const saved = scrollPositions.current[tab];
+    if (saved !== undefined) el.scrollTop = saved;
+  }, [tab, problem]);
 
   // Auto-load when parent passes a URL (e.g. clicking recommendation in Dashboard)
   useEffect(() => {
@@ -500,7 +512,10 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
               {(["statement", "trail", "editorial"] as const).map((t) => (
                 <button
                   key={t}
-                  onClick={() => setTab(t)}
+                  onClick={() => {
+                    if (scrollRef.current) scrollPositions.current[tab] = scrollRef.current.scrollTop;
+                    setTab(t);
+                  }}
                   style={{
                     padding: "7px 14px",
                     background: "none", border: "none",
@@ -521,7 +536,7 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
           {/* Content — each tab has its own scroll container */}
           <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {tab === "statement" && (
-              <div className="animate-fade-in" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "20px" }}>
+              <div ref={scrollRef} onScroll={(e) => { scrollPositions.current["statement"] = (e.target as HTMLDivElement).scrollTop; }} className="animate-fade-in" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "20px" }}>
                 {/* Source & Tags */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 6 }}>
                   <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "JetBrains Mono", textTransform: "capitalize" }}>
@@ -589,7 +604,7 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
             )}
 
             {tab === "trail" && (
-              <div className="animate-fade-in" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "20px" }}>
+              <div ref={scrollRef} onScroll={(e) => { scrollPositions.current["trail"] = (e.target as HTMLDivElement).scrollTop; }} className="animate-fade-in" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "20px" }}>
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>
                     Optimization Trail
@@ -622,7 +637,7 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
             )}
 
             {tab === "editorial" && (
-              <div className="animate-fade-in" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "20px" }}>
+              <div ref={scrollRef} onScroll={(e) => { scrollPositions.current["editorial"] = (e.target as HTMLDivElement).scrollTop; }} className="animate-fade-in" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "20px" }}>
                 <div style={{ padding: "16px", background: "var(--surface-2)", borderRadius: 10, border: "1px solid var(--border-subtle)" }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 8 }}>
                     Scraped Editorial & Optimal Strategy
