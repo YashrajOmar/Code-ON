@@ -78,7 +78,7 @@ export default function FlexLayoutWrapper({
       switch (component) {
         case "statement":
           return (
-            <div style={{ height: "100%", overflow: "auto" }}>
+            <div style={{ height: "100%", overflow: "hidden" }}>
               <ProblemPanel
                 onProblemLoaded={onProblemLoaded}
                 autoLoadUrl={pendingUrl}
@@ -94,7 +94,7 @@ export default function FlexLayoutWrapper({
           );
         case "editorial":
           return (
-            <div style={{ height: "100%", overflow: "auto" }}>
+            <div style={{ height: "100%", overflow: "hidden" }}>
               <ProblemPanel
                 onProblemLoaded={onProblemLoaded}
                 activeTab="editorial"
