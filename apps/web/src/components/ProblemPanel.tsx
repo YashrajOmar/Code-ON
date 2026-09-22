@@ -518,10 +518,10 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
             )}
           </div>
 
-          {/* Content */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "20px" }}>
+          {/* Content — each tab has its own scroll container */}
+          <div style={{ flex: 1, minHeight: 0 }}>
             {tab === "statement" && (
-              <div className="animate-fade-in">
+              <div className="animate-fade-in" style={{ height: "100%", overflowY: "auto", padding: "20px" }}>
                 {/* Source & Tags */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 6 }}>
                   <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "JetBrains Mono", textTransform: "capitalize" }}>
@@ -589,7 +589,7 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
             )}
 
             {tab === "trail" && (
-              <div className="animate-fade-in">
+              <div className="animate-fade-in" style={{ height: "100%", overflowY: "auto", padding: "20px" }}>
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 4 }}>
                     Optimization Trail
@@ -622,7 +622,7 @@ export default function ProblemPanel({ onProblemLoaded, autoLoadUrl, onAutoLoadD
             )}
 
             {tab === "editorial" && (
-              <div className="animate-fade-in">
+              <div className="animate-fade-in" style={{ height: "100%", overflowY: "auto", padding: "20px" }}>
                 <div style={{ padding: "16px", background: "var(--surface-2)", borderRadius: 10, border: "1px solid var(--border-subtle)" }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", marginBottom: 8 }}>
                     Scraped Editorial & Optimal Strategy
